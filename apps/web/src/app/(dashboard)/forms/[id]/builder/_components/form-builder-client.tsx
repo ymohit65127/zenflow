@@ -515,7 +515,7 @@ export function FormBuilderClient({ formId }: { formId: string }) {
           )}
           {formQuery.data?.is_public && status === 'PUBLISHED' && (
             <a
-              href={`/forms/${formQuery.data.slug}`}
+              href={`/f/${formQuery.data.slug}`}
               target="_blank"
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border hover:bg-muted text-sm font-medium transition-colors"
             >

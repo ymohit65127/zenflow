@@ -185,7 +185,7 @@ export function FormsListClient() {
                   </Link>
                   {form.status === 'PUBLISHED' && (
                     <Link
-                      href={`/forms/${form.slug}`}
+                      href={`/f/${form.slug}`}
                       target="_blank"
                       className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-green-500/10 text-green-600 hover:bg-green-500/20 transition-colors font-medium"
                     >
