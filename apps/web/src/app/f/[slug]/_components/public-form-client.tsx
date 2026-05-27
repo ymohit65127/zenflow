@@ -410,7 +410,6 @@ export function PublicFormClient({ form }: { form: PublicFormData }) {
     );
   }
 
-  // Check if form is closed by date
   if (form.close_at && new Date() > new Date(form.close_at)) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -428,7 +427,6 @@ export function PublicFormClient({ form }: { form: PublicFormData }) {
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-2xl mx-auto px-4 py-12">
-        {/* Form header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold">{form.title}</h1>
           {form.description && (
@@ -436,7 +434,6 @@ export function PublicFormClient({ form }: { form: PublicFormData }) {
           )}
         </div>
 
-        {/* Error message */}
         {errors._form && (
           <div className="mb-6 p-4 bg-red-500/10 border border-red-400/30 rounded-xl text-sm text-red-600">
             {errors._form}
@@ -445,15 +442,9 @@ export function PublicFormClient({ form }: { form: PublicFormData }) {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {visibleFields.map((field) => {
-            if (field.type === 'DIVIDER') {
-              return <hr key={field.id} className="border-border" />;
-            }
-            if (field.type === 'HEADING') {
-              return <h2 key={field.id} className="text-xl font-semibold pt-2">{field.label}</h2>;
-            }
-            if (field.type === 'PARAGRAPH') {
-              return <p key={field.id} className="text-muted-foreground">{field.label}</p>;
-            }
+            if (field.type === 'DIVIDER') return <hr key={field.id} className="border-border" />;
+            if (field.type === 'HEADING') return <h2 key={field.id} className="text-xl font-semibold pt-2">{field.label}</h2>;
+            if (field.type === 'PARAGRAPH') return <p key={field.id} className="text-muted-foreground">{field.label}</p>;
 
             return (
               <div key={field.id} className="space-y-1.5">

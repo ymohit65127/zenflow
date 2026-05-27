@@ -10,8 +10,10 @@ export default auth((req) => {
 
   // Allow public API routes
   if (pathname.startsWith("/api/auth")) return NextResponse.next();
-  // Allow public form embed routes
-  if (pathname.startsWith("/forms/")) return NextResponse.next();
+  // Allow public form embed routes (moved to /f/ to avoid route conflicts)
+  if (pathname.startsWith("/f/")) return NextResponse.next();
+  // Allow public pages
+  if (pathname.startsWith("/demo") || pathname.startsWith("/contact")) return NextResponse.next();
 
   // Redirect authenticated users away from auth pages
   if (isAuthenticated && authRoutes.some((r) => pathname.startsWith(r))) {

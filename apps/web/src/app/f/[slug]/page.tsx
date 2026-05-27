@@ -44,7 +44,6 @@ export default async function PublicFormPage({ params }: Props) {
     );
   }
 
-  // Serialize dates for client
   const serialized = {
     id: form.id,
     title: form.title,
