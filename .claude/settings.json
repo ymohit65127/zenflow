@@ -1,0 +1,48 @@
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": [
+      "Bash(git *)",
+      "Bash(npm *)",
+      "Bash(pnpm *)",
+      "Bash(node *)",
+      "Bash(npx *)",
+      "Bash(docker *)",
+      "Bash(docker-compose *)",
+      "Bash(prisma *)",
+      "Bash(mkdir *)",
+      "Bash(rmdir *)",
+      "Bash(rm *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(cat *)",
+      "Bash(echo *)",
+      "Bash(ls *)",
+      "Bash(dir *)",
+      "Bash(touch *)",
+      "Bash(curl *)",
+      "Bash(python *)",
+      "Bash(pip *)",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NonInteractive -Command \"Set-Location 'C:\\xampp\\htdocs\\Claude\\zenflow'; $status = git status --porcelain; if ($status) { $ts = Get-Date -Format 'yyyy-MM-dd HH:mm'; git add -A; git commit -m \\\"auto: save progress $ts\\\"; git push origin master 2>&1 | Out-Null }\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

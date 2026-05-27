@@ -1,0 +1,15 @@
+{
+  "name": "@zenflow/eslint-config",
+  "version": "1.0.0",
+  "private": true,
+  "exports": {
+    "./base": "./base.js",
+    "./nextjs": "./nextjs.js",
+    "./react": "./react.js"
+  },
+  "dependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint-config-prettier": "^9.1.0"
+  }
+}
