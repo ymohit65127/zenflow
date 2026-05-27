@@ -22,8 +22,8 @@ export const authConfig: NextAuthConfig = {
   },
   pages: {
     signIn: "/login",
-    signUp: "/register",
     error: "/login",
+    newUser: "/register",
   },
   providers: [
     GoogleProvider({
@@ -37,7 +37,9 @@ export const authConfig: NextAuthConfig = {
     MicrosoftEntraID({
       clientId: process.env.MICROSOFT_ENTRA_CLIENT_ID!,
       clientSecret: process.env.MICROSOFT_ENTRA_CLIENT_SECRET!,
-      tenantId: process.env.MICROSOFT_ENTRA_TENANT_ID,
+      issuer: process.env.MICROSOFT_ENTRA_TENANT_ID
+        ? `https://login.microsoftonline.com/${process.env.MICROSOFT_ENTRA_TENANT_ID}/v2.0`
+        : undefined,
     }),
     CredentialsProvider({
       name: "credentials",
@@ -83,20 +85,22 @@ export const authConfig: NextAuthConfig = {
     jwt({ token, user }) {
       if (user) {
         token.id = user.id;
-        // @ts-expect-error - custom field
-        token.organizationId = user.organizationId as string;
+        token.organizationId = (user as { organizationId?: string }).organizationId;
       }
       return token;
     },
     session({ session, token }) {
       if (token) {
         session.user.id = token.id as string;
-        // @ts-expect-error - custom field
-        session.user.organizationId = token.organizationId as string;
+        (session.user as { organizationId?: string }).organizationId = token.organizationId as string;
       }
       return session;
     },
   },
 };
 
-export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
+const nextAuth = NextAuth(authConfig);
+export const handlers = nextAuth.handlers;
+export const auth = nextAuth.auth;
+export const signIn: typeof nextAuth.signIn = nextAuth.signIn;
+export const signOut: typeof nextAuth.signOut = nextAuth.signOut;

@@ -33,8 +33,8 @@ async function main() {
       email_verified: true,
       is_owner: true,
       is_active: true,
-      // Password: Admin@123 (bcrypt hashed — set via auth flow)
-      password_hash: "$2b$12$placeholder.hash.replace.on.first.login",
+      // Password: Demo@123456
+      password_hash: "$2a$12$1jFH9kzAz4PTU5nwcCQ6r.G97c0EW0015rEdl1EqhQ.9/0K/ypGPi",
     },
   });
   console.log("✅ Admin user created:", user.email);
@@ -165,7 +165,7 @@ async function main() {
   console.log("\n🎉 Database seeded successfully!");
   console.log("\n📝 Login credentials:");
   console.log("   Email: admin@demo.com");
-  console.log("   Password: (set via OAuth or password reset)");
+  console.log("   Password: Demo@123456");
 }
 
 main()

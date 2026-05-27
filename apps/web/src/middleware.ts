@@ -1,16 +1,17 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
 
-const publicRoutes = ["/", "/login", "/register", "/forgot-password", "/api/auth"];
-const authRoutes = ["/login", "/register", "/forgot-password"];
+const publicRoutes = ["/", "/login", "/register", "/forgot-password", "/reset-password", "/api/auth"];
+const authRoutes = ["/login", "/register", "/forgot-password", "/reset-password"];
 
-export default auth((req: NextRequest & { auth: Awaited<ReturnType<typeof auth>> | null }) => {
+export default auth((req) => {
   const { pathname } = req.nextUrl;
   const isAuthenticated = !!req.auth;
 
   // Allow public API routes
   if (pathname.startsWith("/api/auth")) return NextResponse.next();
+  // Allow public form embed routes
+  if (pathname.startsWith("/forms/")) return NextResponse.next();
 
   // Redirect authenticated users away from auth pages
   if (isAuthenticated && authRoutes.some((r) => pathname.startsWith(r))) {

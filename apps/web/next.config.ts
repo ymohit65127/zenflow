@@ -1,9 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  experimental: {
-    reactCompiler: true,
-  },
+  distDir: process.env.NEXT_DIST_DIR ?? ".next",
   transpilePackages: ["@zenflow/db", "@zenflow/ui", "@zenflow/auth", "@zenflow/trpc"],
   images: {
     remotePatterns: [
