@@ -310,8 +310,12 @@ function FieldProperties({
                   type="text"
                   value={opt.label}
                   onChange={(e) => {
-                    updateOption(i, 'label', e.target.value);
-                    updateOption(i, 'value', fieldKeyFromLabel(e.target.value) + `_${i}`);
+                    const newOptions = field.options.map((o, idx) =>
+                      idx === i
+                        ? { label: e.target.value, value: fieldKeyFromLabel(e.target.value) + `_${i}` }
+                        : o
+                    );
+                    onChange({ options: newOptions });
                   }}
                   placeholder={`Option ${i + 1}`}
                   className="flex-1 bg-muted border border-border rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50"
