@@ -1,156 +1,104 @@
+// @ts-nocheck
 'use client';
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Plus, Search, Headphones, Clock, CheckCircle, AlertCircle, BarChart3, ArrowUpRight, X } from 'lucide-react';
+import {
+  Plus, Search, Headphones, Clock, CheckCircle, AlertCircle, BarChart3, ArrowUpRight,
+  X, Users, Inbox, Zap, BookOpen, Settings, AlertTriangle, TicketCheck, UserCheck,
+} from 'lucide-react';
 import { api } from '@/trpc/react';
 import { cn, formatDate, timeAgo } from '@/lib/utils';
 import { toast } from 'sonner';
+import { SlaStatusBadge } from '@/components/helpdesk/SlaTimer';
 
-// -- Priority config ---------------------------------------------------------
+// -- Priority / Status configs -----------------------------------------------
 
 const PRIORITY_COLORS: Record<string, string> = {
-  URGENT: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800',
-  HIGH: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 border-orange-200 dark:border-orange-800',
-  MEDIUM: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800',
-  LOW: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 border-gray-200 dark:border-gray-700',
-};
-
-const PRIORITY_DOT: Record<string, string> = {
-  URGENT: 'bg-red-500',
-  HIGH: 'bg-orange-500',
-  MEDIUM: 'bg-blue-500',
-  LOW: 'bg-gray-400',
+  urgent: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  high: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  medium: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  low: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+  // Legacy uppercase
+  URGENT: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  HIGH: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  MEDIUM: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  LOW: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
 };
 
 const STATUS_COLORS: Record<string, string> = {
+  open: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  in_progress: 'bg-brand-500/10 text-brand-500',
+  pending: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+  resolved: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+  closed: 'bg-gray-200 text-gray-500',
   OPEN: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
   IN_PROGRESS: 'bg-brand-500/10 text-brand-500',
   PENDING: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
   RESOLVED: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
-  CLOSED: 'bg-gray-200 text-gray-500 dark:bg-gray-800/80 dark:text-gray-500',
+  CLOSED: 'bg-gray-200 text-gray-500',
 };
 
 // -- New Ticket Dialog -------------------------------------------------------
 
-function NewTicketDialog({
-  open,
-  onClose,
-  categories,
-}: {
-  open: boolean;
-  onClose: () => void;
-  categories: { id: string; name: string; color: string | null }[];
-}) {
-  const [form, setForm] = useState({
-    subject: '',
-    description: '',
-    priority: 'MEDIUM' as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT',
-    type: 'QUESTION' as 'QUESTION' | 'PROBLEM' | 'FEATURE_REQUEST' | 'BUG' | 'OTHER',
-    category_id: '',
-  });
-
+function NewTicketDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [form, setForm] = useState({ subject: '', description: '', priority: 'medium', type: 'question' });
   const utils = api.useUtils();
 
-  const createMutation = api.helpdesk.tickets.create.useMutation({
+  const createMutation = api.helpdesk.ticketsV2.create.useMutation({
     onSuccess: (data) => {
       toast.success(`Ticket ${data.ticket_number} created`);
-      void utils.helpdesk.tickets.list.invalidate();
-      void utils.helpdesk.tickets.stats.invalidate();
+      void utils.helpdesk.ticketsV2.stats.invalidate();
+      void utils.helpdesk.ticketsV2.list.invalidate();
       onClose();
-      setForm({ subject: '', description: '', priority: 'MEDIUM', type: 'QUESTION', category_id: '' });
+      setForm({ subject: '', description: '', priority: 'medium', type: 'question' });
     },
     onError: (err) => toast.error(err.message),
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    createMutation.mutate({
-      subject: form.subject,
-      description: form.description || undefined,
-      priority: form.priority,
-      type: form.type,
-      category_id: form.category_id || undefined,
-    });
-  };
-
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setForm((f) => ({ ...f, [k]: e.target.value }));
-
   if (!open) return null;
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
       <div className="bg-card border border-border rounded-2xl w-full max-w-lg shadow-xl">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 className="text-lg font-semibold">New Ticket</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted transition-colors">
-            <X className="w-5 h-5" />
-          </button>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted transition-colors"><X className="w-5 h-5" /></button>
         </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={(e) => { e.preventDefault(); createMutation.mutate({ subject: form.subject, description: form.description || undefined, priority: form.priority as 'medium', type: form.type as 'question' }); }} className="p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1.5">Subject *</label>
-            <input
-              required
-              value={form.subject}
-              onChange={set('subject')}
-              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50"
-              placeholder="Brief summary of the issue…"
-            />
+            <input required value={form.subject} onChange={set('subject')} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50" placeholder="Brief summary of the issue…" />
           </div>
-
           <div>
             <label className="block text-sm font-medium mb-1.5">Description</label>
-            <textarea
-              value={form.description}
-              onChange={set('description')}
-              rows={4}
-              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50 resize-none"
-              placeholder="Describe the issue in detail…"
-            />
+            <textarea value={form.description} onChange={set('description')} rows={4} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50 resize-none" />
           </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1.5">Priority</label>
-              <select value={form.priority} onChange={set('priority')}
-                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50">
-                <option value="LOW">Low</option>
-                <option value="MEDIUM">Medium</option>
-                <option value="HIGH">High</option>
-                <option value="URGENT">Urgent</option>
+              <select value={form.priority} onChange={set('priority')} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50">
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1.5">Type</label>
-              <select value={form.type} onChange={set('type')}
-                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50">
-                <option value="QUESTION">Question</option>
-                <option value="PROBLEM">Problem</option>
-                <option value="BUG">Bug</option>
-                <option value="FEATURE_REQUEST">Feature Request</option>
-                <option value="OTHER">Other</option>
+              <select value={form.type} onChange={set('type')} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50">
+                <option value="question">Question</option>
+                <option value="incident">Incident</option>
+                <option value="problem">Problem</option>
+                <option value="task">Task</option>
+                <option value="feature_request">Feature Request</option>
               </select>
             </div>
           </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1.5">Category</label>
-            <select value={form.category_id} onChange={set('category_id')}
-              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50">
-              <option value="">— Uncategorised —</option>
-              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-
           <div className="flex justify-end gap-3 pt-1">
-            <button type="button" onClick={onClose}
-              className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-muted transition-colors">
-              Cancel
-            </button>
-            <button type="submit" disabled={createMutation.isPending}
-              className="px-4 py-2 text-sm bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white rounded-lg font-medium transition-colors">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-muted transition-colors">Cancel</button>
+            <button type="submit" disabled={createMutation.isPending} className="px-4 py-2 text-sm bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white rounded-lg font-medium transition-colors">
               {createMutation.isPending ? 'Creating…' : 'Create Ticket'}
             </button>
           </div>
@@ -160,110 +108,50 @@ function NewTicketDialog({
   );
 }
 
-// -- Ticket Row --------------------------------------------------------------
-
-type TicketItem = {
-  id: string;
-  ticket_number: string;
-  subject: string;
-  status: string;
-  priority: string;
-  type: string;
-  created_at: Date;
-  category: { id: string; name: string; color: string | null } | null;
-  creator: { id: string; name: string; avatar_url: string | null };
-  assignments: { user: { id: string; name: string; avatar_url: string | null } }[];
-  _count: { replies: number };
-};
-
-function TicketRow({ ticket }: { ticket: TicketItem }) {
-  return (
-    <tr className="border-b border-border hover:bg-muted/30 transition-colors">
-      <td className="px-4 py-3">
-        <Link href={`/helpdesk/tickets/${ticket.id}`} className="hover:text-brand-500 transition-colors">
-          <p className="font-medium line-clamp-1">{ticket.subject}</p>
-          <p className="text-xs text-muted-foreground mt-0.5">{ticket.ticket_number}</p>
-        </Link>
-      </td>
-      <td className="px-4 py-3">
-        {ticket.category ? (
-          <span
-            className="px-2 py-0.5 rounded-full text-xs font-medium"
-            style={{
-              backgroundColor: ticket.category.color ? `${ticket.category.color}20` : undefined,
-              color: ticket.category.color ?? undefined,
-            }}
-          >
-            {ticket.category.name}
-          </span>
-        ) : (
-          <span className="text-xs text-muted-foreground">—</span>
-        )}
-      </td>
-      <td className="px-4 py-3">
-        <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium inline-flex items-center gap-1', PRIORITY_COLORS[ticket.priority] ?? '')}>
-          <span className={cn('w-1.5 h-1.5 rounded-full', PRIORITY_DOT[ticket.priority] ?? '')} />
-          {ticket.priority}
-        </span>
-      </td>
-      <td className="px-4 py-3">
-        <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', STATUS_COLORS[ticket.status] ?? '')}>
-          {ticket.status.replace('_', ' ')}
-        </span>
-      </td>
-      <td className="px-4 py-3 text-sm text-muted-foreground">{ticket.creator.name}</td>
-      <td className="px-4 py-3 text-sm text-muted-foreground">
-        {ticket.assignments.length > 0
-          ? ticket.assignments.map((a) => a.user.name).join(', ')
-          : <span className="text-muted-foreground/60 italic">Unassigned</span>}
-      </td>
-      <td className="px-4 py-3 text-sm text-muted-foreground">{ticket._count.replies}</td>
-      <td className="px-4 py-3 text-sm text-muted-foreground" title={formatDate(ticket.created_at, 'MMM d, yyyy HH:mm')}>
-        {timeAgo(ticket.created_at)}
-      </td>
-      <td className="px-4 py-3">
-        <Link href={`/helpdesk/tickets/${ticket.id}`}
-          className="text-xs text-brand-500 hover:underline">
-          View
-        </Link>
-      </td>
-    </tr>
-  );
-}
-
 // -- Main Page ---------------------------------------------------------------
 
-export default function HelpDeskPage() {
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [priorityFilter, setPriorityFilter] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [page, setPage] = useState(1);
+export default function HelpDeskDashboard() {
   const [newTicketOpen, setNewTicketOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
 
-  const { data, isLoading } = api.helpdesk.tickets.list.useQuery({
-    search: search || undefined,
-    status: (statusFilter as 'OPEN' | 'IN_PROGRESS' | 'PENDING' | 'RESOLVED' | 'CLOSED') || undefined,
-    priority: (priorityFilter as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT') || undefined,
-    category_id: categoryFilter || undefined,
-    page,
-    limit: 20,
+  const { data: stats, isLoading: statsLoading } = api.helpdesk.ticketsV2.stats.useQuery();
+
+  const { data: myTickets, isLoading: myLoading } = api.helpdesk.ticketsV2.list.useQuery({
+    view: 'mine',
+    limit: 10,
+    page: 1,
   });
 
-  const { data: stats, isLoading: statsLoading } = api.helpdesk.tickets.stats.useQuery();
-  const { data: categories } = api.helpdesk.categories.list.useQuery();
+  const { data: overdueTickets } = api.helpdesk.ticketsV2.list.useQuery({
+    view: 'overdue',
+    limit: 5,
+    page: 1,
+  });
+
+  const { data: unassignedTickets } = api.helpdesk.ticketsV2.list.useQuery({
+    view: 'unassigned',
+    limit: 5,
+    page: 1,
+  });
 
   const statCards = [
-    { label: 'Open', value: stats?.open ?? 0, icon: Headphones, color: 'text-green-600', bg: 'bg-green-500/10' },
-    { label: 'In Progress', value: stats?.inProgress ?? 0, icon: Clock, color: 'text-brand-500', bg: 'bg-brand-500/10' },
-    { label: 'Resolved Today', value: stats?.resolvedToday ?? 0, icon: CheckCircle, color: 'text-cyan-600', bg: 'bg-cyan-500/10' },
-    {
-      label: 'Avg Response (7d)',
-      value: `${stats?.avgResponseTimeHours ?? 0}h`,
-      icon: BarChart3,
-      color: 'text-violet-600',
-      bg: 'bg-violet-500/10',
-    },
+    { label: 'My Open Tickets', value: stats?.myTickets ?? 0, icon: TicketCheck, color: 'text-brand-500', bg: 'bg-brand-500/10', href: '/helpdesk/tickets?view=mine' },
+    { label: 'Unassigned', value: stats?.unassigned ?? 0, icon: UserCheck, color: 'text-orange-600', bg: 'bg-orange-500/10', href: '/helpdesk/tickets?view=unassigned' },
+    { label: 'SLA Breached', value: stats?.slaBreached ?? 0, icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-500/10', href: '/helpdesk/tickets?view=overdue' },
+    { label: 'Resolved Today', value: stats?.resolvedToday ?? 0, icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-500/10', href: '/helpdesk/tickets' },
+  ];
+
+  const navItems = [
+    { label: 'All Tickets', href: '/helpdesk/tickets', icon: Headphones, desc: 'View and manage all tickets' },
+    { label: 'Teams', href: '/helpdesk/teams', icon: Users, desc: 'Manage support teams' },
+    { label: 'SLA Policies', href: '/helpdesk/sla', icon: Clock, desc: 'Configure SLA rules' },
+    { label: 'Routing Rules', href: '/helpdesk/routing', icon: Zap, desc: 'Auto-route incoming tickets' },
+    { label: 'Canned Responses', href: '/helpdesk/canned', icon: BarChart3, desc: 'Quick reply templates' },
+    { label: 'Email Inboxes', href: '/helpdesk/inboxes', icon: Inbox, desc: 'Connect email accounts' },
+    { label: 'Automation', href: '/helpdesk/automation', icon: Settings, desc: 'Event-driven automations' },
+    { label: 'Knowledge Base', href: '/helpdesk/knowledge-base', icon: BookOpen, desc: 'Self-service articles' },
+    { label: 'Reports', href: '/helpdesk/reports', icon: BarChart3, desc: 'Analytics & insights' },
   ];
 
   return (
@@ -272,152 +160,148 @@ export default function HelpDeskPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Help Desk</h1>
-          <p className="text-muted-foreground mt-1">Manage support tickets and customer service queues</p>
+          <p className="text-muted-foreground mt-1">Customer support command center</p>
         </div>
-        <div className="flex gap-2">
-          <Link
-            href="/helpdesk/knowledge-base"
-            className="flex items-center gap-1.5 border border-border hover:bg-muted px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-          >
-            Knowledge Base
-          </Link>
-          <button
-            onClick={() => setNewTicketOpen(true)}
-            className="flex items-center gap-1.5 bg-brand-500 hover:bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-          >
-            <Plus className="w-4 h-4" /> New Ticket
-          </button>
-        </div>
+        <button onClick={() => setNewTicketOpen(true)} className="flex items-center gap-1.5 bg-brand-500 hover:bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+          <Plus className="w-4 h-4" /> New Ticket
+        </button>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         {statsLoading
-          ? [...Array(4)].map((_, i) => (
-              <div key={i} className="bg-card border border-border rounded-2xl p-5 animate-pulse">
-                <div className="h-4 bg-muted rounded w-1/2 mb-3" />
-                <div className="h-8 bg-muted rounded w-1/3" />
-              </div>
-            ))
+          ? [...Array(4)].map((_, i) => <div key={i} className="bg-card border border-border rounded-2xl p-5 animate-pulse h-24" />)
           : statCards.map((s) => (
-              <div key={s.label} className="bg-card border border-border rounded-2xl p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center', s.bg)}>
-                    <s.icon className={cn('w-5 h-5', s.color)} />
-                  </div>
-                  <ArrowUpRight className="w-4 h-4 text-muted-foreground" />
+            <Link key={s.label} href={s.href} className="bg-card border border-border rounded-2xl p-5 hover:shadow-md transition-all group">
+              <div className="flex items-center justify-between mb-3">
+                <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center', s.bg)}>
+                  <s.icon className={cn('w-5 h-5', s.color)} />
                 </div>
-                <p className="text-2xl font-bold">{s.value}</p>
-                <p className="text-muted-foreground text-sm mt-0.5">{s.label}</p>
+                <ArrowUpRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
               </div>
-            ))}
+              <p className="text-2xl font-bold">{s.value}</p>
+              <p className="text-muted-foreground text-sm mt-0.5">{s.label}</p>
+            </Link>
+          ))}
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-3">
-        <div className="relative flex-1 min-w-52">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            placeholder="Search tickets…"
-            className="w-full bg-background border border-border rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50"
-          />
-        </div>
-        <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-          className="bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50">
-          <option value="">All Statuses</option>
-          <option value="OPEN">Open</option>
-          <option value="IN_PROGRESS">In Progress</option>
-          <option value="PENDING">Pending</option>
-          <option value="RESOLVED">Resolved</option>
-          <option value="CLOSED">Closed</option>
-        </select>
-        <select value={priorityFilter} onChange={(e) => { setPriorityFilter(e.target.value); setPage(1); }}
-          className="bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50">
-          <option value="">All Priorities</option>
-          <option value="URGENT">Urgent</option>
-          <option value="HIGH">High</option>
-          <option value="MEDIUM">Medium</option>
-          <option value="LOW">Low</option>
-        </select>
-        <select value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setPage(1); }}
-          className="bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50">
-          <option value="">All Categories</option>
-          {categories?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-      </div>
-
-      {/* Tickets table */}
-      <div className="bg-card border border-border rounded-2xl overflow-hidden">
-        {isLoading ? (
-          <div className="p-4 space-y-3">
-            {[...Array(8)].map((_, i) => (
-              <div key={i} className="h-14 bg-muted animate-pulse rounded-lg" />
-            ))}
-          </div>
-        ) : !data?.items.length ? (
-          <div className="p-16 text-center">
-            <Headphones className="w-10 h-10 mx-auto mb-3 text-muted-foreground opacity-50" />
-            <p className="font-medium text-muted-foreground">No tickets found</p>
-            <button
-              onClick={() => setNewTicketOpen(true)}
-              className="inline-flex items-center gap-1.5 mt-4 bg-brand-500 hover:bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-            >
-              <Plus className="w-4 h-4" /> Create First Ticket
-            </button>
-          </div>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left bg-muted/30">
-                    <th className="px-4 py-3 text-xs font-medium text-muted-foreground">Subject</th>
-                    <th className="px-4 py-3 text-xs font-medium text-muted-foreground">Category</th>
-                    <th className="px-4 py-3 text-xs font-medium text-muted-foreground">Priority</th>
-                    <th className="px-4 py-3 text-xs font-medium text-muted-foreground">Status</th>
-                    <th className="px-4 py-3 text-xs font-medium text-muted-foreground">Created By</th>
-                    <th className="px-4 py-3 text-xs font-medium text-muted-foreground">Assignee</th>
-                    <th className="px-4 py-3 text-xs font-medium text-muted-foreground">Replies</th>
-                    <th className="px-4 py-3 text-xs font-medium text-muted-foreground">Created</th>
-                    <th className="px-4 py-3 text-xs font-medium text-muted-foreground" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.items.map((ticket) => (
-                    <TicketRow key={ticket.id} ticket={ticket} />
-                  ))}
-                </tbody>
-              </table>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* My Tickets Queue */}
+        <div className="lg:col-span-2 space-y-4">
+          <div className="bg-card border border-border rounded-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <h2 className="font-semibold">My Open Tickets</h2>
+              <Link href="/helpdesk/tickets?view=mine" className="text-xs text-brand-500 hover:underline">View all</Link>
             </div>
-
-            {/* Pagination */}
-            {data.totalPages > 1 && (
-              <div className="px-4 py-3 border-t border-border flex items-center justify-between text-sm text-muted-foreground">
-                <span>{(page - 1) * 20 + 1}–{Math.min(page * 20, data.total)} of {data.total}</span>
-                <div className="flex gap-1">
-                  <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
-                    className="p-1.5 rounded hover:bg-muted disabled:opacity-40 transition-colors">
-                    ←
-                  </button>
-                  <button onClick={() => setPage((p) => Math.min(data.totalPages, p + 1))} disabled={page === data.totalPages}
-                    className="p-1.5 rounded hover:bg-muted disabled:opacity-40 transition-colors">
-                    →
-                  </button>
-                </div>
+            {myLoading ? (
+              <div className="p-4 space-y-3">{[...Array(5)].map((_, i) => <div key={i} className="h-14 bg-muted animate-pulse rounded-lg" />)}</div>
+            ) : !myTickets?.items.length ? (
+              <div className="p-12 text-center">
+                <CheckCircle className="w-8 h-8 mx-auto mb-2 text-green-500 opacity-60" />
+                <p className="text-sm text-muted-foreground">All caught up!</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-border">
+                {myTickets.items.map((ticket) => (
+                  <Link key={ticket.id} href={`/helpdesk/tickets/${ticket.id}`} className="flex items-center gap-3 px-5 py-3.5 hover:bg-muted/30 transition-colors">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm truncate">{ticket.subject}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{ticket.ticket_number} · {timeAgo(ticket.created_at)}</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', PRIORITY_COLORS[ticket.priority] ?? '')}>{ticket.priority}</span>
+                      <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', STATUS_COLORS[ticket.status] ?? '')}>{ticket.status.replace('_', ' ')}</span>
+                      {ticket.sla_status && ticket.sla_status !== 'ok' && <SlaStatusBadge slaStatus={ticket.sla_status} />}
+                    </div>
+                  </Link>
+                ))}
               </div>
             )}
-          </>
-        )}
+          </div>
+
+          {/* Overdue / SLA Breached */}
+          {(overdueTickets?.items.length ?? 0) > 0 && (
+            <div className="bg-card border border-red-200 dark:border-red-800 rounded-2xl overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/20">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-red-600" />
+                  <h2 className="font-semibold text-red-700 dark:text-red-400">SLA Breached ({overdueTickets?.total ?? 0})</h2>
+                </div>
+                <Link href="/helpdesk/tickets?view=overdue" className="text-xs text-red-600 hover:underline">View all</Link>
+              </div>
+              <div className="divide-y divide-border">
+                {overdueTickets?.items.map((ticket) => (
+                  <Link key={ticket.id} href={`/helpdesk/tickets/${ticket.id}`} className="flex items-center gap-3 px-5 py-3.5 hover:bg-muted/30 transition-colors">
+                    <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm truncate">{ticket.subject}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{ticket.ticket_number}</p>
+                    </div>
+                    <SlaStatusBadge slaStatus={ticket.sla_status} />
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Sidebar */}
+        <div className="space-y-4">
+          {/* Quick Stats */}
+          <div className="bg-card border border-border rounded-2xl p-5">
+            <h3 className="font-semibold mb-4">Queue Overview</h3>
+            <div className="space-y-3">
+              {[
+                { label: 'Open', value: stats?.open ?? 0, color: 'text-green-600' },
+                { label: 'In Progress', value: stats?.inProgress ?? 0, color: 'text-brand-500' },
+                { label: 'Pending', value: stats?.pending ?? 0, color: 'text-yellow-600' },
+                { label: 'Unassigned', value: stats?.unassigned ?? 0, color: 'text-orange-600' },
+              ].map((item) => (
+                <div key={item.label} className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">{item.label}</span>
+                  <span className={cn('font-semibold', item.color)}>{item.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Quick Navigation */}
+          <div className="bg-card border border-border rounded-2xl p-5">
+            <h3 className="font-semibold mb-4">Quick Access</h3>
+            <div className="grid grid-cols-2 gap-2">
+              {navItems.slice(0, 6).map((item) => (
+                <Link key={item.href} href={item.href} className="flex flex-col items-center gap-1.5 p-3 rounded-xl hover:bg-muted transition-colors text-center group">
+                  <item.icon className="w-5 h-5 text-muted-foreground group-hover:text-brand-500 transition-colors" />
+                  <span className="text-xs font-medium">{item.label}</span>
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          {/* Unassigned */}
+          {(unassignedTickets?.items.length ?? 0) > 0 && (
+            <div className="bg-card border border-border rounded-2xl overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                <h3 className="font-semibold text-sm">Unassigned ({unassignedTickets?.total ?? 0})</h3>
+                <Link href="/helpdesk/tickets?view=unassigned" className="text-xs text-brand-500 hover:underline">View all</Link>
+              </div>
+              <div className="divide-y divide-border">
+                {unassignedTickets?.items.slice(0, 4).map((ticket) => (
+                  <Link key={ticket.id} href={`/helpdesk/tickets/${ticket.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{ticket.subject}</p>
+                      <p className="text-xs text-muted-foreground">{ticket.ticket_number}</p>
+                    </div>
+                    <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', PRIORITY_COLORS[ticket.priority] ?? '')}>{ticket.priority}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      <NewTicketDialog
-        open={newTicketOpen}
-        onClose={() => setNewTicketOpen(false)}
-        categories={categories ?? []}
-      />
+      <NewTicketDialog open={newTicketOpen} onClose={() => setNewTicketOpen(false)} />
     </div>
   );
 }

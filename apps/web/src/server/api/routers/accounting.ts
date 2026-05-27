@@ -4,6 +4,22 @@ import { TRPCError } from '@trpc/server';
 import { type PrismaClient } from '@zenflow/db';
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Sub-routers (v2)
+// ─────────────────────────────────────────────────────────────────────────────
+import { coaRouter } from './accounting/coa';
+import { journalRouter } from './accounting/journal';
+import { vendorsRouter } from './accounting/vendors';
+import { billsRouter } from './accounting/bills';
+import { bankRouter } from './accounting/bank';
+import { reconciliationRouter } from './accounting/reconciliation';
+import { accExpensesRouter } from './accounting/expenses';
+import { assetsRouter } from './accounting/assets';
+import { budgetRouter } from './accounting/budget';
+import { costCentersRouter } from './accounting/costCenters';
+import { taxRatesRouter } from './accounting/taxRates';
+import { reportsRouter } from './accounting/reports';
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -440,10 +456,10 @@ const invoicesRouter = createTRPCRouter({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Expenses router
+// Legacy Expenses router (pre-v2, uses old expense model)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const expensesRouter = createTRPCRouter({
+const legacyExpensesRouter = createTRPCRouter({
   list: protectedProcedure
     .input(
       paginationInput.extend({
@@ -616,7 +632,7 @@ const expensesRouter = createTRPCRouter({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Chart of Accounts router
+// Chart of Accounts router (legacy — pre-v2)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const chartOfAccountsRouter = createTRPCRouter({
@@ -694,7 +710,22 @@ const chartOfAccountsRouter = createTRPCRouter({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const accountingRouter = createTRPCRouter({
+  // Legacy v1 routers (kept for backwards compatibility)
   invoices: invoicesRouter,
-  expenses: expensesRouter,
+  expenses: legacyExpensesRouter,
   chartOfAccounts: chartOfAccountsRouter,
+
+  // v2 sub-routers
+  coa: coaRouter,
+  journal: journalRouter,
+  vendors: vendorsRouter,
+  bills: billsRouter,
+  bank: bankRouter,
+  reconciliation: reconciliationRouter,
+  accExpenses: accExpensesRouter,
+  assets: assetsRouter,
+  budget: budgetRouter,
+  costCenters: costCentersRouter,
+  taxRates: taxRatesRouter,
+  reports: reportsRouter,
 });

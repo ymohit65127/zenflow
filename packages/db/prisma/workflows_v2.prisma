@@ -1,0 +1,255 @@
+// =============================================================================
+// Workflows v2 — New models and enums
+// Doc: 09_WORKFLOWS_v2.md
+// Existing: Workflow, WorkflowStep, WorkflowRun, Integration, Webhook (schema.prisma)
+// New models use V2 suffix where model name already exists.
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum WfTriggerType {
+  event
+  schedule
+  webhook
+  manual
+  api
+}
+
+enum WfStatus {
+  draft
+  active
+  paused
+  archived
+}
+
+enum WfRunStatus {
+  running
+  completed
+  failed
+  cancelled
+  timed_out
+}
+
+enum WfStepStatus {
+  pending
+  running
+  completed
+  failed
+  skipped
+}
+
+enum WfErrorHandling {
+  stop
+  continue
+  retry
+}
+
+enum WfDifficulty {
+  beginner
+  intermediate
+  advanced
+}
+
+enum WfApprovalStatus {
+  pending
+  approved
+  rejected
+  timed_out
+}
+
+enum WfWebhookMethod {
+  POST
+  GET
+  PUT
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// Note: Existing Workflow model is in schema.prisma. New WorkflowV2 here
+// replaces it with graph-based engine.
+// ---------------------------------------------------------------------------
+
+model WorkflowV2 {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String          @db.Uuid
+  created_by      String          @db.Uuid
+  name            String          @db.VarChar(255)
+  description     String?         @db.Text
+
+  trigger_type    WfTriggerType
+  trigger_config  Json
+
+  status          WfStatus        @default(draft)
+  version         Int             @default(1)
+
+  nodes           Json
+  edges           Json
+
+  error_handling  WfErrorHandling @default(stop)
+  max_retries     Int             @default(3)
+  timeout_minutes Int             @default(30)
+  rate_limit_per_hour Int?
+
+  last_run_at     DateTime?
+  total_runs      Int             @default(0)
+  successful_runs Int             @default(0)
+  failed_runs     Int             @default(0)
+  avg_duration_ms Int?
+
+  created_at      DateTime        @default(now())
+  updated_at      DateTime        @updatedAt
+  deleted_at      DateTime?
+
+  organization      Organization               @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  runs              WorkflowV2Run[]
+  trigger_logs      WorkflowTriggerLog[]
+  approval_requests WorkflowApprovalRequest[]
+  webhook_endpoints WorkflowWebhookEndpoint[]
+
+  @@index([organization_id, status])
+  @@map("workflows_v2")
+}
+
+model WorkflowV2Run {
+  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workflow_id      String      @db.Uuid
+  workflow_version Int
+  trigger_type     WfTriggerType
+  trigger_data     Json
+  status           WfRunStatus @default(running)
+  started_at       DateTime    @default(now())
+  completed_at     DateTime?
+  duration_ms      Int?
+  error_message    String?     @db.Text
+  steps_total      Int         @default(0)
+  steps_completed  Int         @default(0)
+  output_data      Json?
+  created_at       DateTime    @default(now())
+
+  workflow          WorkflowV2               @relation(fields: [workflow_id], references: [id], onDelete: Cascade)
+  step_logs         WorkflowRunStep[]
+  approval_requests WorkflowApprovalRequest[]
+
+  @@index([workflow_id, status, started_at])
+  @@map("workflow_v2_runs")
+}
+
+model WorkflowRunStep {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  run_id        String       @db.Uuid
+  node_id       String       @db.VarChar(36)
+  node_type     String       @db.VarChar(50)
+  node_name     String       @db.VarChar(255)
+  status        WfStepStatus @default(pending)
+  started_at    DateTime?
+  completed_at  DateTime?
+  duration_ms   Int?
+  input_data    Json?
+  output_data   Json?
+  error_message String?      @db.Text
+  retry_count   Int          @default(0)
+  created_at    DateTime     @default(now())
+
+  run WorkflowV2Run @relation(fields: [run_id], references: [id], onDelete: Cascade)
+
+  @@index([run_id, node_id])
+  @@map("workflow_run_steps")
+}
+
+model WorkflowTriggerLog {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workflow_id  String    @db.Uuid
+  trigger_type String    @db.VarChar(50)
+  trigger_data Json
+  matched      Boolean
+  run_id       String?   @db.Uuid
+  created_at   DateTime  @default(now())
+
+  workflow WorkflowV2  @relation(fields: [workflow_id], references: [id], onDelete: Cascade)
+
+  @@index([workflow_id, created_at])
+  @@map("workflow_trigger_logs")
+}
+
+model WorkflowTemplate {
+  id                    String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id       String?      @db.Uuid
+  name                  String       @db.VarChar(255)
+  description           String?      @db.Text
+  category              String       @db.VarChar(100)
+  use_case              String?      @db.VarChar(255)
+  difficulty            WfDifficulty @default(beginner)
+  nodes                 Json
+  edges                 Json
+  required_integrations String[]
+  install_count         Int          @default(0)
+  is_published          Boolean      @default(false)
+  created_by            String?      @db.VarChar(36)
+  created_at            DateTime     @default(now())
+
+  @@index([category, is_published])
+  @@map("workflow_templates")
+}
+
+model WorkflowApprovalRequest {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  run_id          String           @db.Uuid
+  step_node_id    String           @db.VarChar(36)
+  approver_ids    String[]
+  message         String?          @db.Text
+  context_data    Json
+  status          WfApprovalStatus @default(pending)
+  approved_by     String?          @db.VarChar(36)
+  approved_at     DateTime?
+  rejected_reason String?          @db.Text
+  expires_at      DateTime?
+  created_at      DateTime         @default(now())
+
+  run WorkflowV2Run @relation(fields: [run_id], references: [id], onDelete: Cascade)
+
+  @@index([run_id, status])
+  @@map("workflow_approval_requests")
+}
+
+model WorkflowWebhookEndpoint {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String          @db.Uuid
+  workflow_id     String          @db.Uuid
+  path            String          @unique @db.VarChar(200)
+  description     String?         @db.VarChar(255)
+  method          WfWebhookMethod @default(POST)
+  secret          String?         @db.VarChar(120)
+  is_active       Boolean         @default(true)
+  request_count   Int             @default(0)
+  last_called_at  DateTime?
+  created_at      DateTime        @default(now())
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  workflow     WorkflowV2   @relation(fields: [workflow_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@map("workflow_webhook_endpoints")
+}
+
+model WorkflowIntegration {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  created_by      String    @db.Uuid
+  name            String    @db.VarChar(200)
+  provider        String    @db.VarChar(50)
+  credentials_enc Json
+  scopes          String[]
+  is_active       Boolean   @default(true)
+  expires_at      DateTime?
+  last_used_at    DateTime?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, provider])
+  @@map("workflow_integrations")
+}

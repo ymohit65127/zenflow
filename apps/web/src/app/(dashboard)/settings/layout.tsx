@@ -10,6 +10,11 @@ import {
   KeyRound,
   CreditCard,
   Bell,
+  Shield,
+  Sliders,
+  ClipboardList,
+  Webhook,
+  Globe,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -17,10 +22,15 @@ const navItems = [
   { label: "Profile", href: "/settings/profile", icon: User },
   { label: "Organization", href: "/settings/organization", icon: Building2 },
   { label: "Team", href: "/settings/team", icon: Users },
-  { label: "Security", href: "/settings/security", icon: ShieldCheck },
-  { label: "API Keys", href: "/settings/api-keys", icon: KeyRound },
-  { label: "Billing", href: "/settings/billing", icon: CreditCard },
+  { label: "Roles", href: "/settings/roles", icon: Shield },
+  { label: "Custom Fields", href: "/settings/custom-fields", icon: Sliders },
+  { label: "Audit Log", href: "/settings/audit-log", icon: ClipboardList },
   { label: "Notifications", href: "/settings/notifications", icon: Bell },
+  { label: "API Tokens", href: "/settings/api-keys", icon: KeyRound },
+  { label: "Webhooks", href: "/settings/webhooks", icon: Webhook },
+  { label: "Security", href: "/settings/security", icon: ShieldCheck },
+  { label: "SSO", href: "/settings/sso", icon: Globe },
+  { label: "Billing", href: "/settings/billing", icon: CreditCard },
 ];
 
 export default function SettingsLayout({

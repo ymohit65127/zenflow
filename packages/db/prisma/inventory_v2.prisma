@@ -1,0 +1,619 @@
+// =============================================================================
+// Inventory v2 — New models and enums
+// Doc: 06_INVENTORY_v2.md
+// All models use Inv prefix. Original non-prefixed models remain in schema.prisma.
+// organization_id normalized (org_id → organization_id).
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum InvBarcodeType {
+  ean13
+  upc
+  qr
+  code128
+  none
+}
+
+enum InvUnitOfMeasure {
+  piece
+  kg
+  gram
+  litre
+  ml
+  meter
+  cm
+  sq_meter
+  cubic_meter
+  box
+  carton
+  dozen
+  pack
+  set
+  pair
+}
+
+enum InvMovementType {
+  receipt
+  issue
+  transfer_in
+  transfer_out
+  adjustment_in
+  adjustment_out
+  return_in
+  return_out
+  production_input
+  production_output
+  opening_stock
+}
+
+enum InvSerialStatus {
+  in_stock
+  sold
+  returned
+  damaged
+  expired
+}
+
+enum InvTransferStatus {
+  draft
+  in_transit
+  received
+  cancelled
+}
+
+enum InvAdjustmentReason {
+  count_discrepancy
+  damage
+  expiry
+  theft
+  other
+}
+
+enum InvAdjustmentStatus {
+  draft
+  approved
+  posted
+  cancelled
+}
+
+enum InvCountScope {
+  full
+  partial
+  cycle
+}
+
+enum InvCountStatus {
+  draft
+  in_progress
+  completed
+  cancelled
+}
+
+enum InvProductionStatus {
+  draft
+  released
+  in_progress
+  completed
+  cancelled
+}
+
+enum InvPriceType {
+  retail
+  wholesale
+  special
+  contract
+}
+
+enum InvLocationType {
+  bin
+  aisle
+  shelf
+  zone
+  floor
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+model InvProductCategory {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  name            String    @db.VarChar(255)
+  description     String?   @db.Text
+  parent_id       String?   @db.Uuid
+  position        Int       @default(0)
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization         @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  parent       InvProductCategory?  @relation("InvCategoryParent", fields: [parent_id], references: [id])
+  children     InvProductCategory[] @relation("InvCategoryParent")
+  products     InvProduct[]
+
+  @@index([organization_id])
+  @@index([parent_id])
+  @@map("inv_product_categories")
+}
+
+model InvProduct {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String          @db.Uuid
+  category_id     String?         @db.Uuid
+  name            String          @db.VarChar(255)
+  sku             String          @db.VarChar(100)
+  barcode         String?         @db.VarChar(100)
+  barcode_type    InvBarcodeType  @default(none)
+  description     String?         @db.Text
+  unit_of_measure InvUnitOfMeasure @default(piece)
+  cost_price      Decimal         @default(0) @db.Decimal(15, 4)
+  sale_price      Decimal         @default(0) @db.Decimal(15, 4)
+  currency        String          @default("USD") @db.VarChar(3)
+  reorder_point   Decimal?        @db.Decimal(10, 4)
+  reorder_qty     Decimal?        @db.Decimal(10, 4)
+  min_stock       Decimal?        @db.Decimal(10, 4)
+  max_stock       Decimal?        @db.Decimal(10, 4)
+  track_serial    Boolean         @default(false)
+  track_lot       Boolean         @default(false)
+  has_variants    Boolean         @default(false)
+  is_active       Boolean         @default(true)
+  weight          Decimal?        @db.Decimal(10, 4)
+  weight_unit     String?         @db.VarChar(10)
+  images          String[]
+  custom_fields   Json?
+  created_at      DateTime        @default(now())
+  updated_at      DateTime        @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization         @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  category     InvProductCategory?  @relation(fields: [category_id], references: [id])
+  variants     InvProductVariant[]
+  stock_levels InvStockLevel[]
+  movements    InvStockMovement[]
+  bom_parents  InvBOM[]
+  bom_lines    InvBOMLine[]
+
+  @@unique([organization_id, sku])
+  @@index([organization_id])
+  @@index([category_id])
+  @@map("inv_products")
+}
+
+model InvProductVariant {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  product_id      String    @db.Uuid
+  sku             String    @db.VarChar(100)
+  name            String    @db.VarChar(255)
+  attributes      Json
+  cost_price      Decimal   @default(0) @db.Decimal(15, 4)
+  sale_price      Decimal   @default(0) @db.Decimal(15, 4)
+  barcode         String?   @db.VarChar(100)
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  product      InvProduct   @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, sku])
+  @@index([organization_id])
+  @@index([product_id])
+  @@map("inv_product_variants")
+}
+
+model InvWarehouse {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  name            String    @db.VarChar(255)
+  code            String    @db.VarChar(50)
+  address         Json?
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization  @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  locations    InvLocation[]
+  stock_levels InvStockLevel[]
+
+  @@unique([organization_id, code])
+  @@index([organization_id])
+  @@map("inv_warehouses")
+}
+
+model InvLocation {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String          @db.Uuid
+  warehouse_id    String          @db.Uuid
+  name            String          @db.VarChar(255)
+  code            String?         @db.VarChar(50)
+  location_type   InvLocationType @default(bin)
+  parent_id       String?         @db.Uuid
+  is_active       Boolean         @default(true)
+  created_at      DateTime        @default(now())
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  warehouse    InvWarehouse @relation(fields: [warehouse_id], references: [id])
+  parent       InvLocation?  @relation("LocationParent", fields: [parent_id], references: [id])
+  children     InvLocation[] @relation("LocationParent")
+
+  @@index([organization_id])
+  @@index([warehouse_id])
+  @@map("inv_locations")
+}
+
+model InvStockLevel {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  product_id      String    @db.Uuid
+  variant_id      String?   @db.Uuid
+  warehouse_id    String    @db.Uuid
+  location_id     String?   @db.Uuid
+  quantity        Decimal   @default(0) @db.Decimal(10, 4)
+  reserved_qty    Decimal   @default(0) @db.Decimal(10, 4)
+  available_qty   Decimal   @default(0) @db.Decimal(10, 4)
+  avg_cost        Decimal   @default(0) @db.Decimal(15, 4)
+  updated_at      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  product      InvProduct   @relation(fields: [product_id], references: [id])
+  warehouse    InvWarehouse @relation(fields: [warehouse_id], references: [id])
+
+  @@unique([product_id, variant_id, warehouse_id, location_id])
+  @@index([organization_id])
+  @@index([product_id])
+  @@index([warehouse_id])
+  @@map("inv_stock_levels")
+}
+
+model InvStockMovement {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String          @db.Uuid
+  product_id      String          @db.Uuid
+  variant_id      String?         @db.Uuid
+  warehouse_id    String          @db.Uuid
+  location_id     String?         @db.Uuid
+  movement_type   InvMovementType
+  quantity        Decimal         @db.Decimal(10, 4)
+  unit_cost       Decimal         @default(0) @db.Decimal(15, 4)
+  total_cost      Decimal         @default(0) @db.Decimal(15, 4)
+  reference_type  String?         @db.VarChar(50)
+  reference_id    String?         @db.Uuid
+  lot_id          String?         @db.Uuid
+  serial_id       String?         @db.Uuid
+  notes           String?         @db.Text
+  moved_by        String?         @db.Uuid
+  moved_at        DateTime        @default(now())
+  created_at      DateTime        @default(now())
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  product      InvProduct   @relation(fields: [product_id], references: [id])
+
+  @@index([organization_id])
+  @@index([product_id])
+  @@index([warehouse_id])
+  @@index([movement_type])
+  @@index([moved_at])
+  @@map("inv_stock_movements")
+}
+
+model InvSerialNumber {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String          @db.Uuid
+  product_id      String          @db.Uuid
+  warehouse_id    String?         @db.Uuid
+  location_id     String?         @db.Uuid
+  serial_number   String          @db.VarChar(255)
+  status          InvSerialStatus @default(in_stock)
+  purchased_at    DateTime?       @db.Date
+  expires_at      DateTime?       @db.Date
+  sold_to         String?         @db.VarChar(255)
+  notes           String?         @db.Text
+  created_at      DateTime        @default(now())
+  updated_at      DateTime        @updatedAt
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  product      InvProduct   @relation(fields: [product_id], references: [id])
+
+  @@unique([organization_id, serial_number])
+  @@index([organization_id])
+  @@index([product_id])
+  @@map("inv_serial_numbers")
+}
+
+model InvLot {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  product_id      String    @db.Uuid
+  lot_number      String    @db.VarChar(255)
+  manufacture_date DateTime? @db.Date
+  expiry_date     DateTime?  @db.Date
+  quantity        Decimal   @default(0) @db.Decimal(10, 4)
+  notes           String?   @db.Text
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  product      InvProduct   @relation(fields: [product_id], references: [id])
+
+  @@unique([organization_id, lot_number])
+  @@index([organization_id])
+  @@index([product_id])
+  @@map("inv_lots")
+}
+
+model InvStockTransfer {
+  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String            @db.Uuid
+  transfer_number String            @db.VarChar(50)
+  from_warehouse_id String          @db.Uuid
+  to_warehouse_id String            @db.Uuid
+  status          InvTransferStatus @default(draft)
+  notes           String?           @db.Text
+  requested_by    String?           @db.Uuid
+  approved_by     String?           @db.Uuid
+  approved_at     DateTime?
+  shipped_at      DateTime?
+  received_at     DateTime?
+  created_at      DateTime          @default(now())
+  updated_at      DateTime          @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  lines        InvStockTransferLine[]
+
+  @@unique([organization_id, transfer_number])
+  @@index([organization_id])
+  @@map("inv_stock_transfers")
+}
+
+model InvStockTransferLine {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  transfer_id String    @db.Uuid
+  product_id  String    @db.Uuid
+  variant_id  String?   @db.Uuid
+  quantity    Decimal   @db.Decimal(10, 4)
+  received_qty Decimal  @default(0) @db.Decimal(10, 4)
+  unit_cost   Decimal   @default(0) @db.Decimal(15, 4)
+  lot_id      String?   @db.Uuid
+  serial_id   String?   @db.Uuid
+  created_at  DateTime  @default(now())
+
+  transfer InvStockTransfer @relation(fields: [transfer_id], references: [id], onDelete: Cascade)
+  product  InvProduct       @relation(fields: [product_id], references: [id])
+
+  @@index([transfer_id])
+  @@index([product_id])
+  @@map("inv_stock_transfer_lines")
+}
+
+model InvStockAdjustment {
+  id              String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String                @db.Uuid
+  adjustment_number String              @db.VarChar(50)
+  warehouse_id    String                @db.Uuid
+  reason          InvAdjustmentReason   @default(count_discrepancy)
+  status          InvAdjustmentStatus   @default(draft)
+  notes           String?               @db.Text
+  created_by      String?               @db.Uuid
+  approved_by     String?               @db.Uuid
+  approved_at     DateTime?
+  posted_at       DateTime?
+  created_at      DateTime              @default(now())
+  updated_at      DateTime              @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization              @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  lines        InvStockAdjustmentLine[]
+
+  @@unique([organization_id, adjustment_number])
+  @@index([organization_id])
+  @@index([warehouse_id])
+  @@map("inv_stock_adjustments")
+}
+
+model InvStockAdjustmentLine {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  adjustment_id String    @db.Uuid
+  product_id    String    @db.Uuid
+  variant_id    String?   @db.Uuid
+  qty_before    Decimal   @db.Decimal(10, 4)
+  qty_after     Decimal   @db.Decimal(10, 4)
+  qty_diff      Decimal   @db.Decimal(10, 4)
+  unit_cost     Decimal   @default(0) @db.Decimal(15, 4)
+  notes         String?   @db.Text
+  created_at    DateTime  @default(now())
+
+  adjustment InvStockAdjustment @relation(fields: [adjustment_id], references: [id], onDelete: Cascade)
+  product    InvProduct         @relation(fields: [product_id], references: [id])
+
+  @@index([adjustment_id])
+  @@index([product_id])
+  @@map("inv_stock_adjustment_lines")
+}
+
+model InvPhysicalCount {
+  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String         @db.Uuid
+  count_number    String         @db.VarChar(50)
+  warehouse_id    String         @db.Uuid
+  scope           InvCountScope  @default(full)
+  status          InvCountStatus @default(draft)
+  started_at      DateTime?
+  completed_at    DateTime?
+  created_by      String?        @db.Uuid
+  notes           String?        @db.Text
+  created_at      DateTime       @default(now())
+  updated_at      DateTime       @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  lines        InvPhysicalCountLine[]
+
+  @@unique([organization_id, count_number])
+  @@index([organization_id])
+  @@index([warehouse_id])
+  @@map("inv_physical_counts")
+}
+
+model InvPhysicalCountLine {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  count_id     String    @db.Uuid
+  product_id   String    @db.Uuid
+  variant_id   String?   @db.Uuid
+  expected_qty Decimal   @db.Decimal(10, 4)
+  counted_qty  Decimal?  @db.Decimal(10, 4)
+  discrepancy  Decimal?  @db.Decimal(10, 4)
+  counted_by   String?   @db.Uuid
+  counted_at   DateTime?
+  notes        String?   @db.Text
+  created_at   DateTime  @default(now())
+
+  count   InvPhysicalCount @relation(fields: [count_id], references: [id], onDelete: Cascade)
+  product InvProduct       @relation(fields: [product_id], references: [id])
+
+  @@index([count_id])
+  @@index([product_id])
+  @@map("inv_physical_count_lines")
+}
+
+model InvBOM {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  product_id      String    @db.Uuid
+  name            String    @db.VarChar(255)
+  description     String?   @db.Text
+  version         String?   @db.VarChar(50)
+  output_qty      Decimal   @default(1) @db.Decimal(10, 4)
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  deleted_at      DateTime?
+
+  organization    Organization       @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  product         InvProduct         @relation(fields: [product_id], references: [id])
+  lines           InvBOMLine[]
+  production_orders InvProductionOrder[]
+
+  @@index([organization_id])
+  @@index([product_id])
+  @@map("inv_boms")
+}
+
+model InvBOMLine {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  bom_id          String    @db.Uuid
+  component_id    String    @db.Uuid
+  quantity        Decimal   @db.Decimal(10, 4)
+  unit_of_measure InvUnitOfMeasure @default(piece)
+  notes           String?   @db.Text
+  position        Int       @default(0)
+  created_at      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  bom          InvBOM       @relation(fields: [bom_id], references: [id], onDelete: Cascade)
+  component    InvProduct   @relation(fields: [component_id], references: [id])
+
+  @@index([organization_id])
+  @@index([bom_id])
+  @@index([component_id])
+  @@map("inv_bom_lines")
+}
+
+model InvProductionOrder {
+  id              String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String              @db.Uuid
+  order_number    String              @db.VarChar(50)
+  bom_id          String?             @db.Uuid
+  product_id      String?             @db.Uuid
+  planned_qty     Decimal             @db.Decimal(10, 4)
+  produced_qty    Decimal             @default(0) @db.Decimal(10, 4)
+  warehouse_id    String?             @db.Uuid
+  status          InvProductionStatus @default(draft)
+  planned_start   DateTime?           @db.Date
+  planned_end     DateTime?           @db.Date
+  actual_start    DateTime?
+  actual_end      DateTime?
+  notes           String?             @db.Text
+  created_by      String?             @db.Uuid
+  created_at      DateTime            @default(now())
+  updated_at      DateTime            @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  bom          InvBOM?      @relation(fields: [bom_id], references: [id])
+
+  @@unique([organization_id, order_number])
+  @@index([organization_id])
+  @@map("inv_production_orders")
+}
+
+model InvSupplierPriceList {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  supplier_id     String?   @db.Uuid
+  product_id      String    @db.Uuid
+  min_qty         Decimal   @default(1) @db.Decimal(10, 4)
+  price           Decimal   @db.Decimal(15, 4)
+  currency        String    @default("USD") @db.VarChar(3)
+  valid_from      DateTime? @db.Date
+  valid_to        DateTime? @db.Date
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  product      InvProduct   @relation(fields: [product_id], references: [id])
+
+  @@index([organization_id])
+  @@index([product_id])
+  @@map("inv_supplier_price_lists")
+}
+
+model InvPriceList {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String       @db.Uuid
+  name            String       @db.VarChar(255)
+  price_type      InvPriceType @default(retail)
+  currency        String       @default("USD") @db.VarChar(3)
+  discount_pct    Decimal      @default(0) @db.Decimal(5, 2)
+  valid_from      DateTime?    @db.Date
+  valid_to        DateTime?    @db.Date
+  is_active       Boolean      @default(true)
+  created_at      DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  entries      InvPriceListEntry[]
+
+  @@index([organization_id])
+  @@map("inv_price_lists")
+}
+
+model InvPriceListEntry {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  price_list_id String    @db.Uuid
+  product_id    String    @db.Uuid
+  variant_id    String?   @db.Uuid
+  price         Decimal   @db.Decimal(15, 4)
+  min_qty       Decimal   @default(1) @db.Decimal(10, 4)
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  price_list InvPriceList @relation(fields: [price_list_id], references: [id], onDelete: Cascade)
+  product    InvProduct   @relation(fields: [product_id], references: [id])
+
+  @@index([price_list_id])
+  @@index([product_id])
+  @@map("inv_price_list_entries")
+}

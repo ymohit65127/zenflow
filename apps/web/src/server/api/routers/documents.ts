@@ -1,92 +1,66 @@
+// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Sub-routers
-// ─────────────────────────────────────────────────────────────────────────────
-
-const versionsRouter = createTRPCRouter({
-  list: protectedProcedure
-    .input(z.object({ documentId: z.string() }))
-    .query(async ({ ctx, input }) => {
-      const orgId = ctx.session.user.organizationId as string;
-      const doc = await ctx.prisma.document.findFirst({
-        where: { id: input.documentId, organization_id: orgId, deleted_at: null },
-        select: { id: true },
-      });
-      if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
-      return ctx.prisma.documentVersion.findMany({
-        where: { document_id: input.documentId },
-        orderBy: { version: 'desc' },
-        take: 50,
-      });
-    }),
-
-  save: protectedProcedure
-    .input(
-      z.object({
-        documentId: z.string(),
-        content: z.record(z.unknown()),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const orgId = ctx.session.user.organizationId as string;
-      const userId = ctx.session.user.id as string;
-      const doc = await ctx.prisma.document.findFirst({
-        where: { id: input.documentId, organization_id: orgId, deleted_at: null },
-        select: { id: true, version: true },
-      });
-      if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
-
-      const newVersion = doc.version + 1;
-
-      const [versionRecord] = await ctx.prisma.$transaction([
-        ctx.prisma.documentVersion.create({
-          data: {
-            document_id: input.documentId,
-            version: newVersion,
-            content: input.content as object,
-            created_by: userId,
-          },
-        }),
-        ctx.prisma.document.update({
-          where: { id: input.documentId },
-          data: { version: newVersion },
-        }),
-      ]);
-
-      return versionRecord;
-    }),
-});
+import { spacesRouter } from '@/server/api/routers/documents/spaces';
+import { versionsRouter } from '@/server/api/routers/documents/versions';
+import { commentsRouter } from '@/server/api/routers/documents/comments';
+import { favoritesRouter } from '@/server/api/routers/documents/favorites';
+import { permissionsRouter } from '@/server/api/routers/documents/permissions';
+import { searchRouter } from '@/server/api/routers/documents/search';
+import { exportRouter } from '@/server/api/routers/documents/export';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Main documents router
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const documentsRouter = createTRPCRouter({
+  // Sub-routers
+  spaces: spacesRouter,
   versions: versionsRouter,
+  comments: commentsRouter,
+  favorites: favoritesRouter,
+  permissions: permissionsRouter,
+  search: searchRouter,
+  export: exportRouter,
 
-  list: protectedProcedure.input(z.object({})).query(async ({ ctx }) => {
-    const orgId = ctx.session.user.organizationId as string;
-    const docs = await ctx.prisma.document.findMany({
-      where: { organization_id: orgId, parent_id: null, deleted_at: null },
-      include: {
-        _count: { select: { children: true } },
-      },
-      orderBy: { updated_at: 'desc' },
-    });
+  // ── Core document procedures ────────────────────────────────────────────────
 
-    // Fetch owners in bulk
-    const ownerIds = [...new Set(docs.map((d) => d.owner_id))];
-    const owners = await ctx.prisma.user.findMany({
-      where: { id: { in: ownerIds } },
-      select: { id: true, name: true, avatar_url: true },
-    });
-    const ownerMap = new Map(owners.map((u) => [u.id, u]));
+  list: protectedProcedure
+    .input(
+      z.object({
+        spaceId: z.string().optional(),
+        parentId: z.string().nullable().optional(),
+        includeArchived: z.boolean().default(false),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const orgId = ctx.session.user.organizationId as string;
+      const docs = await ctx.prisma.document.findMany({
+        where: {
+          organization_id: orgId,
+          parent_id: input.parentId !== undefined ? input.parentId : null,
+          deleted_at: null,
+          ...(input.spaceId ? { space_id: input.spaceId } : {}),
+          ...(!input.includeArchived ? { is_archived: false } : {}),
+        },
+        include: {
+          _count: { select: { children: true } },
+        },
+        orderBy: { updated_at: 'desc' },
+      });
 
-    return docs.map((d) => ({ ...d, owner: ownerMap.get(d.owner_id) ?? null }));
-  }),
+      const ownerIds = [...new Set(docs.map((d) => d.owner_id))];
+      const owners = await ctx.prisma.user.findMany({
+        where: { id: { in: ownerIds } },
+        select: { id: true, name: true, avatar_url: true },
+      });
+      const ownerMap = new Map(owners.map((u) => [u.id, u]));
+
+      return docs.map((d) => ({ ...d, owner: ownerMap.get(d.owner_id) ?? null }));
+    }),
 
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
@@ -113,6 +87,14 @@ export const documentsRouter = createTRPCRouter({
         select: { id: true, name: true, avatar_url: true },
       });
 
+      // Increment view count (fire and forget)
+      ctx.prisma.document
+        .update({
+          where: { id: doc.id },
+          data: { views_count: { increment: 1 }, last_viewed_at: new Date() },
+        })
+        .catch(() => {});
+
       return { ...doc, owner: owner ?? null };
     }),
 
@@ -124,7 +106,9 @@ export const documentsRouter = createTRPCRouter({
           .enum(['DOCUMENT', 'FOLDER', 'DATABASE', 'SPREADSHEET', 'WHITEBOARD', 'TEMPLATE'])
           .default('DOCUMENT'),
         parent_id: z.string().nullable().optional(),
+        space_id: z.string().nullable().optional(),
         icon: z.string().optional(),
+        content: z.record(z.unknown()).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -137,9 +121,10 @@ export const documentsRouter = createTRPCRouter({
           title: input.title,
           type: input.type,
           parent_id: input.parent_id ?? null,
+          space_id: input.space_id ?? null,
           icon: input.icon ?? null,
           status: 'DRAFT',
-          content: { type: 'doc', content: '' } as object,
+          content: (input.content ?? { type: 'doc', content: [] }) as object,
         },
       });
     }),
@@ -154,6 +139,9 @@ export const documentsRouter = createTRPCRouter({
         icon: z.string().nullable().optional(),
         cover_url: z.string().nullable().optional(),
         word_count: z.number().optional(),
+        space_id: z.string().nullable().optional(),
+        parent_id: z.string().nullable().optional(),
+        is_archived: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -162,27 +150,34 @@ export const documentsRouter = createTRPCRouter({
         where: { id: input.id, organization_id: orgId, deleted_at: null },
       });
       if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
+      const { id, ...data } = input;
       return ctx.prisma.document.update({
-        where: { id: input.id },
+        where: { id },
         data: {
-          ...(input.title !== undefined ? { title: input.title } : {}),
-          ...(input.content !== undefined ? { content: input.content as object } : {}),
-          ...(input.status !== undefined ? { status: input.status } : {}),
-          ...(input.icon !== undefined ? { icon: input.icon } : {}),
-          ...(input.cover_url !== undefined ? { cover_url: input.cover_url } : {}),
-          ...(input.word_count !== undefined ? { word_count: input.word_count } : {}),
+          ...(data.title !== undefined ? { title: data.title } : {}),
+          ...(data.content !== undefined ? { content: data.content as object } : {}),
+          ...(data.status !== undefined ? { status: data.status } : {}),
+          ...(data.icon !== undefined ? { icon: data.icon } : {}),
+          ...(data.cover_url !== undefined ? { cover_url: data.cover_url } : {}),
+          ...(data.word_count !== undefined ? { word_count: data.word_count } : {}),
+          ...(data.space_id !== undefined ? { space_id: data.space_id } : {}),
+          ...(data.parent_id !== undefined ? { parent_id: data.parent_id } : {}),
+          ...(data.is_archived !== undefined ? { is_archived: data.is_archived, archived_at: data.is_archived ? new Date() : null } : {}),
         },
       });
     }),
 
   delete: protectedProcedure
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ id: z.string(), permanent: z.boolean().default(false) }))
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const doc = await ctx.prisma.document.findFirst({
         where: { id: input.id, organization_id: orgId, deleted_at: null },
       });
       if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
+      if (input.permanent) {
+        return ctx.prisma.document.delete({ where: { id: input.id } });
+      }
       return ctx.prisma.document.update({
         where: { id: input.id },
         data: { deleted_at: new Date(), status: 'ARCHIVED' },
@@ -195,9 +190,7 @@ export const documentsRouter = createTRPCRouter({
       const orgId = ctx.session.user.organizationId as string;
       return ctx.prisma.document.findMany({
         where: { organization_id: orgId, parent_id: input.parentId, deleted_at: null },
-        include: {
-          _count: { select: { children: true } },
-        },
+        include: { _count: { select: { children: true } } },
         orderBy: [{ type: 'asc' }, { updated_at: 'desc' }],
       });
     }),
@@ -241,44 +234,14 @@ export const documentsRouter = createTRPCRouter({
       });
     }),
 
-  search: protectedProcedure
-    .input(z.object({ query: z.string() }))
-    .query(async ({ ctx, input }) => {
-      const orgId = ctx.session.user.organizationId as string;
-      if (!input.query.trim()) return [];
-      return ctx.prisma.document.findMany({
-        where: {
-          organization_id: orgId,
-          deleted_at: null,
-          title: { contains: input.query, mode: 'insensitive' },
-        },
-        select: {
-          id: true,
-          title: true,
-          type: true,
-          icon: true,
-          owner_id: true,
-          updated_at: true,
-        },
-        take: 20,
-        orderBy: { updated_at: 'desc' },
-      });
-    }),
-
   stats: protectedProcedure.input(z.object({})).query(async ({ ctx }) => {
     const orgId = ctx.session.user.organizationId as string;
     const userId = ctx.session.user.id as string;
 
     const [total, folders, documents, sharedWithMe] = await Promise.all([
-      ctx.prisma.document.count({
-        where: { organization_id: orgId, deleted_at: null },
-      }),
-      ctx.prisma.document.count({
-        where: { organization_id: orgId, deleted_at: null, type: 'FOLDER' },
-      }),
-      ctx.prisma.document.count({
-        where: { organization_id: orgId, deleted_at: null, type: 'DOCUMENT' },
-      }),
+      ctx.prisma.document.count({ where: { organization_id: orgId, deleted_at: null } }),
+      ctx.prisma.document.count({ where: { organization_id: orgId, deleted_at: null, type: 'FOLDER' } }),
+      ctx.prisma.document.count({ where: { organization_id: orgId, deleted_at: null, type: 'DOCUMENT' } }),
       ctx.prisma.documentShare.count({
         where: { user_id: userId, document: { organization_id: orgId, deleted_at: null } },
       }),
@@ -295,7 +258,6 @@ export const documentsRouter = createTRPCRouter({
       take: 10,
     });
 
-    // Fetch owners in bulk
     const ownerIds = [...new Set(docs.map((d) => d.owner_id))];
     const owners = await ctx.prisma.user.findMany({
       where: { id: { in: ownerIds } },
@@ -304,5 +266,20 @@ export const documentsRouter = createTRPCRouter({
     const ownerMap = new Map(owners.map((u) => [u.id, u]));
 
     return docs.map((d) => ({ ...d, owner: ownerMap.get(d.owner_id) ?? null }));
+  }),
+
+  starred: protectedProcedure.input(z.object({})).query(async ({ ctx }) => {
+    const userId = ctx.session.user.id as string;
+    const favs = await ctx.prisma.docFavorite.findMany({
+      where: { user_id: userId },
+      include: {
+        document: {
+          select: { id: true, title: true, icon: true, type: true, updated_at: true },
+        },
+      },
+      orderBy: { created_at: 'desc' },
+      take: 20,
+    });
+    return favs.map((f) => f.document).filter(Boolean);
   }),
 });

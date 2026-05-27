@@ -1,0 +1,200 @@
+// =============================================================================
+// Analytics v2 — New models and enums
+// Doc: 08_ANALYTICS_v2.md
+// Existing: AnalyticsReport, DashboardWidget, SavedFilter (in schema.prisma)
+// New models use V2 suffix to avoid conflicts.
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum ReportTypeV2 {
+  table
+  chart
+  pivot
+  funnel
+  cohort
+  kpi
+}
+
+enum DashboardScope {
+  personal
+  team
+  org
+}
+
+enum WidgetTypeV2 {
+  chart
+  table
+  kpi
+  pivot
+  funnel
+  text
+  divider
+}
+
+enum ReportFrequency {
+  daily
+  weekly
+  monthly
+  quarterly
+}
+
+enum ExportFormat {
+  pdf
+  excel
+  csv
+}
+
+enum AlertOperator {
+  gt
+  lt
+  gte
+  lte
+  eq
+  change_pct_up
+  change_pct_down
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+model AnalyticsReportV2 {
+  id                   String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id      String       @db.Uuid
+  created_by           String       @db.Uuid
+  name                 String       @db.VarChar(255)
+  description          String?      @db.Text
+  report_type          ReportTypeV2 @default(chart)
+
+  data_source          Json
+  visualization_config Json
+
+  is_public            Boolean      @default(false)
+  public_token         String?      @unique @db.VarChar(64)
+  tags                 String[]
+  last_run_at          DateTime?
+  last_run_duration_ms Int?
+  created_at           DateTime     @default(now())
+  updated_at           DateTime     @updatedAt
+  deleted_at           DateTime?
+
+  organization           Organization                  @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  scheduled_reports      AnalyticsScheduledReport[]
+  alerts                 AnalyticsDataAlert[]
+  dashboard_layout_items AnalyticsDashboardItem[]
+
+  @@index([organization_id])
+  @@map("analytics_reports_v2")
+}
+
+model AnalyticsDashboard {
+  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String         @db.Uuid
+  created_by      String         @db.Uuid
+  name            String         @db.VarChar(255)
+  description     String?        @db.Text
+  is_default      Boolean        @default(false)
+  scope           DashboardScope @default(personal)
+  shared_with_ids String[]
+  created_at      DateTime       @default(now())
+  updated_at      DateTime       @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization             @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  items        AnalyticsDashboardItem[]
+
+  @@index([organization_id, scope])
+  @@map("analytics_dashboards")
+}
+
+model AnalyticsDashboardItem {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dashboard_id    String       @db.Uuid
+  report_id       String?      @db.Uuid
+  widget_type     WidgetTypeV2 @default(chart)
+  grid_x          Int          @default(0)
+  grid_y          Int          @default(0)
+  grid_w          Int          @default(6)
+  grid_h          Int          @default(4)
+  title_override  String?      @db.VarChar(255)
+  config_override Json?
+  created_at      DateTime     @default(now())
+
+  dashboard AnalyticsDashboard  @relation(fields: [dashboard_id], references: [id], onDelete: Cascade)
+  report    AnalyticsReportV2?  @relation(fields: [report_id], references: [id])
+
+  @@index([dashboard_id])
+  @@map("analytics_dashboard_items")
+}
+
+model AnalyticsScheduledReport {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String          @db.Uuid
+  created_by      String          @db.Uuid
+  report_id       String?         @db.Uuid
+  dashboard_id    String?         @db.Uuid
+  name            String          @db.VarChar(255)
+  frequency       ReportFrequency
+  day_of_week     Int?
+  day_of_month    Int?
+  hour_of_day     Int             @default(8)
+  recipients      String[]
+  format          ExportFormat    @default(pdf)
+  is_active       Boolean         @default(true)
+  last_sent_at    DateTime?
+  next_send_at    DateTime?
+  created_at      DateTime        @default(now())
+  updated_at      DateTime        @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization       @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  report       AnalyticsReportV2? @relation(fields: [report_id], references: [id])
+
+  @@index([organization_id, is_active])
+  @@index([next_send_at, is_active])
+  @@map("analytics_scheduled_reports")
+}
+
+model AnalyticsDataAlert {
+  id                    String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id       String        @db.Uuid
+  created_by            String        @db.Uuid
+  report_id             String        @db.Uuid
+  name                  String        @db.VarChar(255)
+  metric_path           String        @db.VarChar(255)
+  operator              AlertOperator
+  threshold             Decimal       @db.Decimal(15, 4)
+  notification_channels Json
+  recipients            String[]
+  is_active             Boolean       @default(true)
+  last_triggered_at     DateTime?
+  last_value            Decimal?      @db.Decimal(15, 4)
+  created_at            DateTime      @default(now())
+  updated_at            DateTime      @updatedAt
+  deleted_at            DateTime?
+
+  organization Organization      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  report       AnalyticsReportV2 @relation(fields: [report_id], references: [id])
+
+  @@index([organization_id, is_active])
+  @@map("analytics_data_alerts")
+}
+
+model AnalyticsSavedFilter {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String   @db.Uuid
+  user_id         String   @db.Uuid
+  module          String   @db.VarChar(50)
+  name            String   @db.VarChar(200)
+  filters         Json
+  created_at      DateTime @default(now())
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, user_id, module])
+  @@map("analytics_saved_filters")
+}

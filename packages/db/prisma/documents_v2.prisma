@@ -1,0 +1,231 @@
+// =============================================================================
+// Documents v2 — New models and enums
+// Doc: 10_DOCUMENTS_v2.md
+// Existing: Document, DocumentShare, DocumentVersion (in schema.prisma)
+// New models prefixed with Doc. Document model redefined with Notion-like features.
+// NOTE: Using UUID pattern; cuid() in doc replaced with gen_random_uuid().
+// NOTE: DocSpace references a Team model which doesn't exist yet — relation dropped.
+// NOTE: content_tsvector Unsupported("tsvector") omitted from Prisma schema
+//       (handled via raw SQL migration).
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum DocSpaceVisibility {
+  private
+  team
+  org
+}
+
+enum DocVisibility {
+  private
+  team
+  org
+  public
+}
+
+enum PermSubjectType {
+  user
+  team
+  public
+}
+
+enum PermLevel {
+  view
+  comment
+  edit
+  manage
+}
+
+enum LinkType {
+  mention
+  embed
+  backlink
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+model DocSpace {
+  id          String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String         @db.Uuid
+  name        String             @db.VarChar(200)
+  icon        String?            @db.VarChar(100)
+  color       String?            @db.VarChar(7)
+  description String?            @db.Text
+  visibility  DocSpaceVisibility @default(org)
+  owner_id    String             @db.Uuid
+  position    Int                @default(0)
+  is_archived Boolean            @default(false)
+  created_at  DateTime           @default(now())
+  updated_at  DateTime           @updatedAt
+  deleted_at  DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  documents    DocV2[]
+
+  @@index([organization_id, owner_id])
+  @@index([organization_id, visibility])
+  @@map("doc_spaces")
+}
+
+model DocV2 {
+  id               String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id  String        @db.Uuid
+  space_id         String?       @db.Uuid
+  parent_doc_id    String?       @db.Uuid
+  title            String        @default("Untitled") @db.VarChar(500)
+  icon             String?       @db.VarChar(100)
+  cover_image_url  String?       @db.VarChar(500)
+  content          Json?
+  content_text     String?       @db.Text
+  word_count       Int           @default(0)
+  reading_time_minutes Int       @default(0)
+  visibility       DocVisibility @default(org)
+  published_at     DateTime?
+  is_template      Boolean       @default(false)
+  template_category String?      @db.VarChar(100)
+  is_archived      Boolean       @default(false)
+  archived_at      DateTime?
+  is_locked        Boolean       @default(false)
+  locked_by        String?       @db.VarChar(36)
+  lock_reason      String?       @db.VarChar(255)
+  breadcrumb_path  String?       @db.Text
+  position         Int           @default(0)
+  views_count      Int           @default(0)
+  last_viewed_at   DateTime?
+  share_token      String?       @unique @db.VarChar(64)
+  share_expires_at DateTime?
+  share_can_edit   Boolean       @default(false)
+  created_by       String        @db.Uuid
+  updated_by       String?       @db.Uuid
+  deleted_at       DateTime?
+  created_at       DateTime      @default(now())
+  updated_at       DateTime      @updatedAt
+
+  organization Organization    @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  space        DocSpace?        @relation(fields: [space_id], references: [id])
+  parent       DocV2?           @relation("DocHierarchy", fields: [parent_doc_id], references: [id])
+  children     DocV2[]          @relation("DocHierarchy")
+  versions     DocVersionV2[]
+  comments     DocComment[]
+  favorites    DocFavorite[]
+  permissions  DocPermission[]
+  outbound_links DocLink[]      @relation("SourceDoc")
+  inbound_links  DocLink[]      @relation("TargetDoc")
+  collaborators DocCollaborator[]
+
+  @@index([organization_id, space_id, parent_doc_id, deleted_at])
+  @@index([share_token])
+  @@index([organization_id, is_template])
+  @@map("docs_v2")
+}
+
+model DocVersionV2 {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  document_id    String   @db.Uuid
+  version_number Int
+  title          String   @db.VarChar(500)
+  content        Json
+  content_text   String?  @db.Text
+  changed_by     String   @db.Uuid
+  change_summary String?  @db.VarChar(255)
+  is_named       Boolean  @default(false)
+  version_name   String?  @db.VarChar(100)
+  created_at     DateTime @default(now())
+
+  document DocV2 @relation(fields: [document_id], references: [id], onDelete: Cascade)
+
+  @@unique([document_id, version_number])
+  @@index([document_id, version_number])
+  @@map("doc_versions_v2")
+}
+
+model DocComment {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  document_id       String    @db.Uuid
+  parent_comment_id String?   @db.Uuid
+  block_id          String?   @db.VarChar(36)
+  selected_text     String?   @db.VarChar(500)
+  content           String    @db.Text
+  content_html      String?   @db.Text
+  is_resolved       Boolean   @default(false)
+  resolved_by       String?   @db.Uuid
+  resolved_at       DateTime?
+  mentions          String[]
+  created_by        String    @db.Uuid
+  edited_at         DateTime?
+  deleted_at        DateTime?
+  created_at        DateTime  @default(now())
+
+  document DocV2        @relation(fields: [document_id], references: [id], onDelete: Cascade)
+  parent   DocComment?  @relation("CommentThread", fields: [parent_comment_id], references: [id])
+  replies  DocComment[] @relation("CommentThread")
+
+  @@index([document_id, is_resolved])
+  @@map("doc_comments")
+}
+
+model DocFavorite {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String   @db.Uuid
+  document_id String   @db.Uuid
+  created_at  DateTime @default(now())
+
+  document DocV2 @relation(fields: [document_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, document_id])
+  @@map("doc_favorites")
+}
+
+model DocPermission {
+  id               String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  document_id      String          @db.Uuid
+  subject_type     PermSubjectType
+  subject_id       String?         @db.VarChar(36)
+  permission_level PermLevel
+  granted_by       String          @db.Uuid
+  created_at       DateTime        @default(now())
+
+  document DocV2 @relation(fields: [document_id], references: [id], onDelete: Cascade)
+
+  @@unique([document_id, subject_type, subject_id])
+  @@map("doc_permissions")
+}
+
+model DocLink {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  source_document_id  String    @db.Uuid
+  target_document_id  String?   @db.Uuid
+  target_entity_type  String?   @db.VarChar(50)
+  target_entity_id    String?   @db.VarChar(36)
+  link_type           LinkType
+  block_id            String    @db.VarChar(36)
+  created_at          DateTime  @default(now())
+
+  source DocV2  @relation("SourceDoc", fields: [source_document_id], references: [id], onDelete: Cascade)
+  target DocV2? @relation("TargetDoc", fields: [target_document_id], references: [id])
+
+  @@index([target_document_id])
+  @@index([target_entity_type, target_entity_id])
+  @@map("doc_links")
+}
+
+model DocCollaborator {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  document_id     String    @db.Uuid
+  user_id         String    @db.Uuid
+  socket_id       String    @db.VarChar(100)
+  cursor_position Json?
+  color           String    @db.VarChar(7)
+  last_seen_at    DateTime  @updatedAt
+  created_at      DateTime  @default(now())
+
+  document DocV2 @relation(fields: [document_id], references: [id], onDelete: Cascade)
+
+  @@unique([document_id, user_id])
+  @@map("doc_collaborators")
+}

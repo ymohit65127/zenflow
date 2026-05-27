@@ -11,6 +11,7 @@ import { workflowsRouter } from "@/server/api/routers/workflows";
 import { documentsRouter } from "@/server/api/routers/documents";
 import { chatRouter } from "@/server/api/routers/chat";
 import { settingsRouter } from "@/server/api/routers/settings";
+import { platformRouter } from "@/server/api/routers/platform";
 
 export const appRouter = createTRPCRouter({
   crm: crmRouter,
@@ -25,6 +26,7 @@ export const appRouter = createTRPCRouter({
   documents: documentsRouter,
   chat: chatRouter,
   settings: settingsRouter,
+  platform: platformRouter,
 });
 
 export type AppRouter = typeof appRouter;

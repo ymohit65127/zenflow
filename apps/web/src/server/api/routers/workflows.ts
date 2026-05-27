@@ -2,8 +2,15 @@ import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 
+// ─── Workflows v2 Sub-routers ─────────────────────────────────────────────────
+import { workflowRunsRouter } from './workflows/runs';
+import { workflowTemplatesRouter } from './workflows/templates';
+import { workflowApprovalsRouter } from './workflows/approvals';
+import { workflowWebhooksRouter } from './workflows/webhooks';
+import { workflowIntegrationsRouter } from './workflows/integrations';
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Sub-routers
+// v1 Sub-routers (kept for backwards compatibility)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const runsRouter = createTRPCRouter({
@@ -178,11 +185,18 @@ const webhooksRouter = createTRPCRouter({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const workflowsRouter = createTRPCRouter({
-  // Nested routers
+  // v1 Nested routers (legacy)
   runs: runsRouter,
   steps: stepsRouter,
   integrations: integrationsRouter,
   webhooks: webhooksRouter,
+
+  // ── Workflows v2 ────────────────────────────────────────────────────────────
+  runsV2: workflowRunsRouter,
+  templates: workflowTemplatesRouter,
+  approvals: workflowApprovalsRouter,
+  webhooksV2: workflowWebhooksRouter,
+  integrationsV2: workflowIntegrationsRouter,
 
   list: protectedProcedure.input(z.object({})).query(async ({ ctx }) => {
     const orgId = ctx.session.user.organizationId as string;

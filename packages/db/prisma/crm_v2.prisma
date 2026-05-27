@@ -1,0 +1,543 @@
+// =============================================================================
+// CRM v2 — New models and enums
+// Doc: 01_CRM_v2.md
+// SKIP: CrmPipeline, CrmDeal, CrmContact, CrmActivity, CrmLead, CrmPipelineStage
+//       (already in schema.prisma)
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum CrmStageType {
+  lead
+  opportunity
+  won
+  lost
+}
+
+enum CrmCompanySize {
+  solo
+  small
+  medium
+  large
+  enterprise
+}
+
+enum CrmLifecycleStage {
+  subscriber
+  lead
+  marketing_qualified
+  sales_qualified
+  opportunity
+  customer
+  evangelist
+  other
+}
+
+enum CrmDealType {
+  new_business
+  existing_business
+  renewal
+}
+
+enum CrmDealPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+enum CrmDiscountType {
+  percent
+  fixed
+}
+
+enum CrmQuoteStatus {
+  draft
+  sent
+  accepted
+  rejected
+  expired
+}
+
+enum CrmActivityType {
+  call
+  email
+  meeting
+  task
+  note
+  demo
+  follow_up
+}
+
+enum CrmActivityStatus {
+  pending
+  completed
+  cancelled
+  no_show
+}
+
+enum CrmEntityType {
+  contact
+  lead
+  deal
+  account
+}
+
+enum CrmEmailProvider {
+  gmail
+  outlook
+  smtp
+  imap
+}
+
+enum CrmEmailDirection {
+  inbound
+  outbound
+}
+
+enum CrmSequenceTriggerType {
+  manual
+  deal_stage_change
+  lead_status_change
+  form_submission
+}
+
+enum CrmSequenceStatus {
+  draft
+  active
+  paused
+  archived
+}
+
+enum CrmSequenceStepType {
+  email
+  task
+  call
+  sms
+  wait
+}
+
+enum CrmEnrollmentStatus {
+  active
+  completed
+  unenrolled
+  bounced
+  replied
+}
+
+enum CrmLeadScoreFieldType {
+  attribute
+  activity
+  engagement
+}
+
+enum CrmLeadScoreOperator {
+  eq
+  neq
+  gt
+  gte
+  lt
+  lte
+  contains
+  not_contains
+  is_empty
+  is_not_empty
+}
+
+enum CrmTerritoryRuleType {
+  country
+  state
+  city
+  postal_code
+  industry
+  company_size
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+model CrmStage {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String       @db.Uuid
+  pipeline_id     String       @db.Uuid
+  name            String       @db.VarChar(255)
+  stage_type      CrmStageType @default(lead)
+  position        Int          @default(0)
+  probability     Decimal      @default(0) @db.Decimal(5, 2)
+  color           String?      @db.VarChar(7)
+  is_active       Boolean      @default(true)
+  created_at      DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@index([pipeline_id])
+  @@map("crm_stages")
+}
+
+model CrmAccount {
+  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String             @db.Uuid
+  name            String             @db.VarChar(255)
+  website         String?            @db.VarChar(500)
+  industry        String?            @db.VarChar(100)
+  company_size    CrmCompanySize?
+  phone           String?            @db.VarChar(50)
+  email           String?            @db.VarChar(255)
+  address         Json?
+  annual_revenue  Decimal?           @db.Decimal(15, 4)
+  currency        String             @default("USD") @db.VarChar(3)
+  lifecycle_stage CrmLifecycleStage?
+  owner_id        String?            @db.Uuid
+  parent_id       String?            @db.Uuid
+  tags            String[]
+  custom_fields   Json?
+  description     String?            @db.Text
+  created_at      DateTime           @default(now())
+  updated_at      DateTime           @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  parent       CrmAccount?  @relation("AccountParent", fields: [parent_id], references: [id])
+  children     CrmAccount[] @relation("AccountParent")
+
+  @@index([organization_id])
+  @@index([owner_id])
+  @@index([parent_id])
+  @@map("crm_accounts")
+}
+
+model CrmLostReason {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  reason          String    @db.VarChar(255)
+  is_active       Boolean   @default(true)
+  position        Int       @default(0)
+  created_at      DateTime  @default(now())
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@map("crm_lost_reasons")
+}
+
+model CrmProduct {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  name            String    @db.VarChar(255)
+  sku             String?   @db.VarChar(100)
+  description     String?   @db.Text
+  unit_price      Decimal   @db.Decimal(15, 4)
+  currency        String    @default("USD") @db.VarChar(3)
+  tax_percent     Decimal   @default(0) @db.Decimal(5, 2)
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization   @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  deal_lines   CrmDealProduct[]
+  quote_lines  CrmQuoteLine[]
+
+  @@index([organization_id])
+  @@map("crm_products")
+}
+
+model CrmDealProduct {
+  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  deal_id     String          @db.Uuid
+  product_id  String          @db.Uuid
+  quantity    Decimal         @default(1) @db.Decimal(10, 4)
+  unit_price  Decimal         @db.Decimal(15, 4)
+  discount    Decimal         @default(0) @db.Decimal(15, 4)
+  discount_type CrmDiscountType @default(percent)
+  total       Decimal         @db.Decimal(15, 4)
+  created_at  DateTime        @default(now())
+
+  product CrmProduct @relation(fields: [product_id], references: [id])
+
+  @@index([deal_id])
+  @@index([product_id])
+  @@map("crm_deal_products")
+}
+
+model CrmQuote {
+  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String         @db.Uuid
+  deal_id         String?        @db.Uuid
+  contact_id      String?        @db.Uuid
+  quote_number    String         @db.VarChar(50)
+  title           String         @db.VarChar(255)
+  status          CrmQuoteStatus @default(draft)
+  valid_until     DateTime?      @db.Date
+  currency        String         @default("USD") @db.VarChar(3)
+  subtotal        Decimal        @default(0) @db.Decimal(15, 4)
+  discount_total  Decimal        @default(0) @db.Decimal(15, 4)
+  tax_total       Decimal        @default(0) @db.Decimal(15, 4)
+  total           Decimal        @default(0) @db.Decimal(15, 4)
+  notes           String?        @db.Text
+  terms           String?        @db.Text
+  created_by      String         @db.Uuid
+  sent_at         DateTime?
+  accepted_at     DateTime?
+  created_at      DateTime       @default(now())
+  updated_at      DateTime       @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization  @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  lines        CrmQuoteLine[]
+
+  @@unique([organization_id, quote_number])
+  @@index([organization_id])
+  @@index([deal_id])
+  @@index([contact_id])
+  @@map("crm_quotes")
+}
+
+model CrmQuoteLine {
+  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  quote_id      String          @db.Uuid
+  product_id    String?         @db.Uuid
+  description   String          @db.VarChar(500)
+  quantity      Decimal         @default(1) @db.Decimal(10, 4)
+  unit_price    Decimal         @db.Decimal(15, 4)
+  discount      Decimal         @default(0) @db.Decimal(15, 4)
+  discount_type CrmDiscountType @default(percent)
+  tax_percent   Decimal         @default(0) @db.Decimal(5, 2)
+  total         Decimal         @db.Decimal(15, 4)
+  position      Int             @default(0)
+  created_at    DateTime        @default(now())
+
+  quote   CrmQuote    @relation(fields: [quote_id], references: [id], onDelete: Cascade)
+  product CrmProduct? @relation(fields: [product_id], references: [id])
+
+  @@index([quote_id])
+  @@map("crm_quote_lines")
+}
+
+model CrmNote {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String        @db.Uuid
+  entity_type     CrmEntityType
+  entity_id       String        @db.Uuid
+  content         String        @db.Text
+  created_by      String        @db.Uuid
+  is_pinned       Boolean       @default(false)
+  created_at      DateTime      @default(now())
+  updated_at      DateTime      @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@index([entity_type, entity_id])
+  @@map("crm_notes")
+}
+
+model CrmEmailIntegration {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String           @db.Uuid
+  user_id         String           @db.Uuid
+  provider        CrmEmailProvider
+  email_address   String           @db.VarChar(255)
+  credentials_enc Json
+  is_active       Boolean          @default(true)
+  last_synced_at  DateTime?
+  created_at      DateTime         @default(now())
+  updated_at      DateTime         @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  email_logs   CrmEmailLog[]
+
+  @@unique([organization_id, email_address])
+  @@index([organization_id])
+  @@index([user_id])
+  @@map("crm_email_integrations")
+}
+
+model CrmEmailLog {
+  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id  String            @db.Uuid
+  integration_id   String            @db.Uuid
+  entity_type      CrmEntityType?
+  entity_id        String?           @db.Uuid
+  direction        CrmEmailDirection
+  message_id       String?           @db.VarChar(500)
+  subject          String?           @db.VarChar(500)
+  from_email       String?           @db.VarChar(255)
+  to_emails        String[]
+  cc_emails        String[]
+  body_text        String?           @db.Text
+  body_html        String?           @db.Text
+  sent_at          DateTime?
+  created_at       DateTime          @default(now())
+  deleted_at       DateTime?
+
+  organization Organization        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  integration  CrmEmailIntegration @relation(fields: [integration_id], references: [id])
+
+  @@index([organization_id])
+  @@index([integration_id])
+  @@index([entity_type, entity_id])
+  @@map("crm_email_logs")
+}
+
+model CrmSequence {
+  id              String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String                @db.Uuid
+  name            String                @db.VarChar(255)
+  description     String?               @db.Text
+  trigger_type    CrmSequenceTriggerType @default(manual)
+  trigger_config  Json?
+  status          CrmSequenceStatus     @default(draft)
+  created_by      String                @db.Uuid
+  created_at      DateTime              @default(now())
+  updated_at      DateTime              @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization             @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  steps        CrmSequenceStep[]
+  enrollments  CrmSequenceEnrollment[]
+
+  @@index([organization_id])
+  @@map("crm_sequences")
+}
+
+model CrmSequenceStep {
+  id          String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sequence_id String              @db.Uuid
+  step_type   CrmSequenceStepType
+  position    Int                 @default(0)
+  delay_days  Int                 @default(0)
+  delay_hours Int                 @default(0)
+  config      Json
+  created_at  DateTime            @default(now())
+
+  sequence CrmSequence @relation(fields: [sequence_id], references: [id], onDelete: Cascade)
+
+  @@index([sequence_id])
+  @@map("crm_sequence_steps")
+}
+
+model CrmSequenceEnrollment {
+  id            String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sequence_id   String              @db.Uuid
+  entity_type   CrmEntityType
+  entity_id     String              @db.Uuid
+  enrolled_by   String              @db.Uuid
+  current_step  Int                 @default(0)
+  status        CrmEnrollmentStatus @default(active)
+  enrolled_at   DateTime            @default(now())
+  completed_at  DateTime?
+  unenrolled_at DateTime?
+  created_at    DateTime            @default(now())
+  updated_at    DateTime            @updatedAt
+
+  sequence CrmSequence @relation(fields: [sequence_id], references: [id])
+
+  @@index([sequence_id])
+  @@index([entity_type, entity_id])
+  @@map("crm_sequence_enrollments")
+}
+
+model CrmLeadScoreRule {
+  id              String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String               @db.Uuid
+  name            String               @db.VarChar(255)
+  field_type      CrmLeadScoreFieldType
+  field_key       String               @db.VarChar(100)
+  operator        CrmLeadScoreOperator
+  value           String               @db.VarChar(500)
+  score_change    Int                  @default(0)
+  is_active       Boolean              @default(true)
+  created_at      DateTime             @default(now())
+  updated_at      DateTime             @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@map("crm_lead_score_rules")
+}
+
+model CrmTerritory {
+  id              String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String                @db.Uuid
+  name            String                @db.VarChar(255)
+  owner_id        String?               @db.Uuid
+  rule_type       CrmTerritoryRuleType
+  rule_values     String[]
+  is_active       Boolean               @default(true)
+  created_at      DateTime              @default(now())
+  updated_at      DateTime              @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@map("crm_territories")
+}
+
+model CrmFile {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String        @db.Uuid
+  entity_type     CrmEntityType
+  entity_id       String        @db.Uuid
+  file_name       String        @db.VarChar(255)
+  file_size       BigInt
+  mime_type       String        @db.VarChar(127)
+  storage_path    String        @db.VarChar(1000)
+  uploaded_by     String        @db.Uuid
+  created_at      DateTime      @default(now())
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@index([entity_type, entity_id])
+  @@map("crm_files")
+}
+
+model CrmWebForm {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  name            String    @db.VarChar(255)
+  slug            String    @unique @db.VarChar(64)
+  fields          Json
+  pipeline_id     String?   @db.Uuid
+  stage_id        String?   @db.Uuid
+  owner_id        String?   @db.Uuid
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization          @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  submissions  CrmWebFormSubmission[]
+
+  @@index([organization_id])
+  @@map("crm_web_forms")
+}
+
+model CrmWebFormSubmission {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  form_id     String   @db.Uuid
+  data        Json
+  ip_address  String?  @db.VarChar(45)
+  user_agent  String?  @db.Text
+  lead_id     String?  @db.Uuid
+  contact_id  String?  @db.Uuid
+  created_at  DateTime @default(now())
+
+  form CrmWebForm @relation(fields: [form_id], references: [id], onDelete: Cascade)
+
+  @@index([form_id])
+  @@map("crm_web_form_submissions")
+}

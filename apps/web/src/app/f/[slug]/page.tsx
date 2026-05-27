@@ -1,5 +1,5 @@
 import { prisma } from "@zenflow/db";
-import { PublicFormClient } from "./_components/public-form-client";
+import { PublicFormV2Client } from "@/app/forms/[slug]/_components/public-form-v2-client";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
@@ -8,7 +8,7 @@ type Props = { params: Promise<{ slug: string }> };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const form = await prisma.form.findFirst({
-    where: { slug, deleted_at: null, status: 'PUBLISHED', is_public: true },
+    where: { slug, deleted_at: null },
     select: { title: true, description: true },
   });
   return {
@@ -19,12 +19,17 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function PublicFormPage({ params }: Props) {
   const { slug } = await params;
+
   const form = await prisma.form.findFirst({
-    where: { slug, deleted_at: null, is_public: true },
-    include: { fields: { orderBy: { sort_order: 'asc' } } },
+    where: { slug, deleted_at: null },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    include: { fields: { orderBy: { sort_order: 'asc' } } } as any,
   });
 
   if (!form) notFound();
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const formAny = form as any;
 
   if (form.status !== 'PUBLISHED') {
     return (
@@ -35,7 +40,7 @@ export default async function PublicFormPage({ params }: Props) {
           </div>
           <h1 className="text-xl font-bold mb-2">Form Not Available</h1>
           <p className="text-muted-foreground text-sm">
-            {form.status === 'CLOSED'
+            {form.status === 'ARCHIVED'
               ? 'This form is closed and no longer accepting responses.'
               : 'This form is not currently accepting responses.'}
           </p>
@@ -47,29 +52,40 @@ export default async function PublicFormPage({ params }: Props) {
   const serialized = {
     id: form.id,
     title: form.title,
-    description: form.description,
+    description: form.description ?? null,
     slug: form.slug,
     status: form.status,
-    success_message: form.success_message,
-    redirect_url: form.redirect_url,
-    close_at: form.close_at?.toISOString() ?? null,
-    submission_limit: form.submission_limit,
-    close_on_limit: form.close_on_limit,
-    fields: form.fields.map((f) => ({
+    success_message: formAny.success_message ?? null,
+    redirect_url: formAny.redirect_url ?? null,
+    enable_window: formAny.enable_window ?? false,
+    window_start: formAny.window_start?.toISOString() ?? null,
+    window_end: formAny.window_end?.toISOString() ?? null,
+    enable_max_submissions: formAny.enable_max_submissions ?? false,
+    max_submissions: formAny.max_submissions ?? null,
+    submissions_count: formAny.submissions_count ?? 0,
+    enable_approval: formAny.enable_approval ?? false,
+    recaptcha_site_key: formAny.recaptcha_site_key ?? null,
+    public_rate_limit: formAny.public_rate_limit ?? null,
+    custom_css: formAny.custom_css ?? null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fields: (formAny.fields ?? []).map((f: any) => ({
       id: f.id,
       type: f.type,
       label: f.label,
-      placeholder: f.placeholder,
-      description: f.description,
+      placeholder: f.placeholder ?? null,
+      description: f.description ?? null,
       field_key: f.field_key,
       is_required: f.is_required,
       is_hidden: f.is_hidden,
       sort_order: f.sort_order,
-      options: f.options,
-      validations: f.validations,
-      settings: f.settings,
+      options: f.options ?? null,
+      validations: f.validations ?? null,
+      settings: f.settings ?? {},
+      conditional: f.conditional ?? f.conditions ?? null,
+      width: f.width ?? 'full',
+      page_title: f.page_title ?? null,
     })),
   };
 
-  return <PublicFormClient form={serialized} />;
+  return <PublicFormV2Client form={serialized} />;
 }

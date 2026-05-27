@@ -2,6 +2,12 @@ import { createTRPCRouter, protectedProcedure, publicProcedure } from '@/server/
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { slugify } from '@/lib/utils';
+import { optionSourcesRouter } from '@/server/api/routers/forms/optionSources';
+import { approvalsRouter } from '@/server/api/routers/forms/approvals';
+import { webhooksRouter } from '@/server/api/routers/forms/webhooks';
+import { apiTokensRouter } from '@/server/api/routers/forms/apiTokens';
+import { versionsRouter } from '@/server/api/routers/forms/versions';
+import { auditLogRouter } from '@/server/api/routers/forms/auditLog';
 
 // ─── Fields sub-router ────────────────────────────────────────────────────────
 
@@ -419,4 +425,11 @@ export const formsRouter = createTRPCRouter({
 
   fields: fieldsRouter,
   submissions: submissionsRouter,
+  // Forms v2 sub-routers
+  optionSources: optionSourcesRouter,
+  approvals: approvalsRouter,
+  webhooks: webhooksRouter,
+  apiTokens: apiTokensRouter,
+  versions: versionsRouter,
+  auditLog: auditLogRouter,
 });

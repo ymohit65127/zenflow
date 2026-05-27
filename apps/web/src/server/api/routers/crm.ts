@@ -2,6 +2,20 @@ import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 
+// ─── CRM v2 sub-routers ───────────────────────────────────────────────────────
+import { crmPipelinesRouter } from './crm/pipelines';
+import { crmAccountsRouter } from './crm/accounts';
+import { crmDealsRouter } from './crm/deals';
+import { crmContactsV2Router } from './crm/contacts_v2';
+import { crmQuotesRouter } from './crm/quotes';
+import { crmSequencesRouter } from './crm/sequences';
+import { crmEmailRouter } from './crm/email';
+import { crmProductsRouter } from './crm/products';
+import { crmWebformsRouter } from './crm/webforms';
+import { crmTerritoriesRouter } from './crm/territories';
+import { crmNotesRouter } from './crm/notes';
+import { crmReportsRouter } from './crm/reports';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared input schemas
 // ─────────────────────────────────────────────────────────────────────────────
@@ -663,10 +677,25 @@ const statsQuery = protectedProcedure.query(async ({ ctx }) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const crmRouter = createTRPCRouter({
+  // v1 routers (preserved)
   contacts: contactsRouter,
   leads: leadsRouter,
   deals: dealsRouter,
   pipeline: pipelineRouter,
   activities: activitiesRouter,
   stats: statsQuery,
+
+  // v2 sub-routers
+  pipelines: crmPipelinesRouter,
+  accounts: crmAccountsRouter,
+  dealsV2: crmDealsRouter,
+  contactsV2: crmContactsV2Router,
+  quotes: crmQuotesRouter,
+  sequences: crmSequencesRouter,
+  email: crmEmailRouter,
+  products: crmProductsRouter,
+  webforms: crmWebformsRouter,
+  territories: crmTerritoriesRouter,
+  notes: crmNotesRouter,
+  reports: crmReportsRouter,
 });

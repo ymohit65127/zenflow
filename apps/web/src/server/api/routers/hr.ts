@@ -3,6 +3,20 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { prisma as _prismaInstance } from '@zenflow/db';
 
+// Sub-routers (HR v2)
+import { departmentsRouter } from './hr/departments';
+import { designationsRouter } from './hr/designations';
+import { shiftsRouter } from './hr/shifts';
+import { holidaysRouter } from './hr/holidays';
+import { leaveTypesRouter } from './hr/leaveTypes';
+import { leaveBalanceRouter } from './hr/leaveBalance';
+import { leaveRequestsRouter } from './hr/leaveRequests';
+import { payrollRouter } from './hr/payroll';
+import { salaryStructureRouter } from './hr/salaryStructure';
+import { performanceRouter } from './hr/performance';
+import { recruitmentRouter } from './hr/recruitment';
+import { onboardingRouter } from './hr/onboarding';
+
 type PrismaInstance = typeof _prismaInstance;
 
 // ---------------------------------------------------------------------------
@@ -21,7 +35,7 @@ async function generateEmployeeCode(prisma: PrismaInstance, orgId: string): Prom
 }
 
 // ---------------------------------------------------------------------------
-// Employees
+// Employees (legacy v1 — kept for dashboard page compatibility)
 // ---------------------------------------------------------------------------
 
 const employeesRouter = createTRPCRouter({
@@ -211,10 +225,10 @@ const employeesRouter = createTRPCRouter({
 });
 
 // ---------------------------------------------------------------------------
-// Departments
+// Departments (legacy v1)
 // ---------------------------------------------------------------------------
 
-const departmentsRouter = createTRPCRouter({
+const legacyDepartmentsRouter = createTRPCRouter({
   list: protectedProcedure.query(async ({ ctx }) => {
     const orgId = ctx.session.user.organizationId as string;
     return ctx.prisma.department.findMany({
@@ -251,7 +265,7 @@ const departmentsRouter = createTRPCRouter({
 });
 
 // ---------------------------------------------------------------------------
-// Leave
+// Leave (legacy v1)
 // ---------------------------------------------------------------------------
 
 const leaveRouter = createTRPCRouter({
@@ -425,7 +439,7 @@ const leaveRouter = createTRPCRouter({
 });
 
 // ---------------------------------------------------------------------------
-// Attendance
+// Attendance (legacy v1)
 // ---------------------------------------------------------------------------
 
 const attendanceRouter = createTRPCRouter({
@@ -530,12 +544,27 @@ const attendanceRouter = createTRPCRouter({
 });
 
 // ---------------------------------------------------------------------------
-// Export
+// Export — merged HR router
 // ---------------------------------------------------------------------------
 
 export const hrRouter = createTRPCRouter({
+  // Legacy v1 (preserved for dashboard page compatibility)
   employees: employeesRouter,
-  departments: departmentsRouter,
+  departments: legacyDepartmentsRouter,
   leave: leaveRouter,
   attendance: attendanceRouter,
+
+  // HR v2 sub-routers
+  hr_departments: departmentsRouter,
+  hr_designations: designationsRouter,
+  hr_shifts: shiftsRouter,
+  hr_holidays: holidaysRouter,
+  hr_leave_types: leaveTypesRouter,
+  hr_leave_balance: leaveBalanceRouter,
+  hr_leave_requests: leaveRequestsRouter,
+  hr_payroll: payrollRouter,
+  hr_salary: salaryStructureRouter,
+  hr_performance: performanceRouter,
+  hr_recruitment: recruitmentRouter,
+  hr_onboarding: onboardingRouter,
 });

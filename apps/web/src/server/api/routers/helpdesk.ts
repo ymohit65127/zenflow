@@ -1,12 +1,24 @@
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+
+// v2 sub-routers
+import { slaRouter } from './helpdesk/sla';
+import { teamsRouter } from './helpdesk/teams';
+import { routingRouter } from './helpdesk/routing';
+import { cannedResponsesRouter } from './helpdesk/cannedResponses';
+import { emailInboxRouter } from './helpdesk/emailInbox';
+import { ticketsV2Router } from './helpdesk/tickets_v2';
+import { kbV2Router } from './helpdesk/kb_v2';
+import { automationRouter } from './helpdesk/automation';
+import { reportsRouter } from './helpdesk/reports';
+
 import { prisma as _prismaInstance } from '@zenflow/db';
 
 type PrismaInstance = typeof _prismaInstance;
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Helpers (legacy compatibility)
 // ---------------------------------------------------------------------------
 
 async function generateTicketNumber(prisma: PrismaInstance, orgId: string): Promise<string> {
@@ -21,7 +33,7 @@ async function generateTicketNumber(prisma: PrismaInstance, orgId: string): Prom
 }
 
 // ---------------------------------------------------------------------------
-// Tickets
+// Legacy tickets router (preserves backward compat with v1 pages)
 // ---------------------------------------------------------------------------
 
 const ticketsRouter = createTRPCRouter({
@@ -91,9 +103,7 @@ const ticketsRouter = createTRPCRouter({
           category: { select: { id: true, name: true, color: true } },
           sla_policy: true,
           assignments: { include: { user: { select: { id: true, name: true, avatar_url: true } } } },
-          replies: {
-            orderBy: { created_at: 'asc' },
-          },
+          replies: { orderBy: { created_at: 'asc' } },
         },
       });
       if (!ticket) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ticket not found' });
@@ -221,7 +231,6 @@ const ticketsRouter = createTRPCRouter({
         },
       });
 
-      // Mark first response time if not set
       if (!ticket.first_response_at && !input.is_internal) {
         await ctx.prisma.ticket.update({
           where: { id: input.ticket_id },
@@ -236,32 +245,18 @@ const ticketsRouter = createTRPCRouter({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
-
-      const ticket = await ctx.prisma.ticket.findFirst({
-        where: { id: input.id, organization_id: orgId, deleted_at: null },
-      });
+      const ticket = await ctx.prisma.ticket.findFirst({ where: { id: input.id, organization_id: orgId, deleted_at: null } });
       if (!ticket) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ticket not found' });
-
-      return ctx.prisma.ticket.update({
-        where: { id: input.id },
-        data: { status: 'RESOLVED', resolved_at: new Date() },
-      });
+      return ctx.prisma.ticket.update({ where: { id: input.id }, data: { status: 'RESOLVED', resolved_at: new Date() } });
     }),
 
   close: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
-
-      const ticket = await ctx.prisma.ticket.findFirst({
-        where: { id: input.id, organization_id: orgId, deleted_at: null },
-      });
+      const ticket = await ctx.prisma.ticket.findFirst({ where: { id: input.id, organization_id: orgId, deleted_at: null } });
       if (!ticket) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ticket not found' });
-
-      return ctx.prisma.ticket.update({
-        where: { id: input.id },
-        data: { status: 'CLOSED', closed_at: new Date() },
-      });
+      return ctx.prisma.ticket.update({ where: { id: input.id }, data: { status: 'CLOSED', closed_at: new Date() } });
     }),
 
   stats: protectedProcedure.query(async ({ ctx }) => {
@@ -270,15 +265,9 @@ const ticketsRouter = createTRPCRouter({
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
     const [open, inProgress, resolvedToday, respondedTickets] = await Promise.all([
-      ctx.prisma.ticket.count({
-        where: { organization_id: orgId, deleted_at: null, status: 'OPEN' },
-      }),
-      ctx.prisma.ticket.count({
-        where: { organization_id: orgId, deleted_at: null, status: 'IN_PROGRESS' },
-      }),
-      ctx.prisma.ticket.count({
-        where: { organization_id: orgId, deleted_at: null, status: 'RESOLVED', resolved_at: { gte: startOfDay } },
-      }),
+      ctx.prisma.ticket.count({ where: { organization_id: orgId, deleted_at: null, status: 'OPEN' } }),
+      ctx.prisma.ticket.count({ where: { organization_id: orgId, deleted_at: null, status: 'IN_PROGRESS' } }),
+      ctx.prisma.ticket.count({ where: { organization_id: orgId, deleted_at: null, status: 'RESOLVED', resolved_at: { gte: startOfDay } } }),
       ctx.prisma.ticket.findMany({
         where: {
           organization_id: orgId,
@@ -304,7 +293,7 @@ const ticketsRouter = createTRPCRouter({
 });
 
 // ---------------------------------------------------------------------------
-// Categories
+// Legacy categories router
 // ---------------------------------------------------------------------------
 
 const categoriesRouter = createTRPCRouter({
@@ -344,21 +333,18 @@ const categoriesRouter = createTRPCRouter({
 });
 
 // ---------------------------------------------------------------------------
-// SLA
+// Legacy SLA router
 // ---------------------------------------------------------------------------
 
-const slaRouter = createTRPCRouter({
+const legacySlaRouter = createTRPCRouter({
   list: protectedProcedure.query(async ({ ctx }) => {
     const orgId = ctx.session.user.organizationId as string;
-    return ctx.prisma.slaPolicy.findMany({
-      where: { organization_id: orgId },
-      orderBy: { name: 'asc' },
-    });
+    return ctx.prisma.slaPolicy.findMany({ where: { organization_id: orgId }, orderBy: { name: 'asc' } });
   }),
 });
 
 // ---------------------------------------------------------------------------
-// Knowledge Base
+// Legacy KB router
 // ---------------------------------------------------------------------------
 
 const kbRouter = createTRPCRouter({
@@ -395,18 +381,9 @@ const kbRouter = createTRPCRouter({
         ctx.prisma.knowledgeBaseArticle.findMany({
           where,
           select: {
-            id: true,
-            title: true,
-            slug: true,
-            excerpt: true,
-            status: true,
-            tags: true,
-            views: true,
-            helpful_count: true,
-            not_helpful_count: true,
-            created_at: true,
-            updated_at: true,
-            category_id: true,
+            id: true, title: true, slug: true, excerpt: true, status: true, tags: true,
+            views: true, helpful_count: true, not_helpful_count: true, created_at: true,
+            updated_at: true, category_id: true,
           },
           orderBy: { updated_at: 'desc' },
           skip,
@@ -422,17 +399,9 @@ const kbRouter = createTRPCRouter({
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
-      const article = await ctx.prisma.knowledgeBaseArticle.findFirst({
-        where: { id: input.id, organization_id: orgId },
-      });
+      const article = await ctx.prisma.knowledgeBaseArticle.findFirst({ where: { id: input.id, organization_id: orgId } });
       if (!article) throw new TRPCError({ code: 'NOT_FOUND', message: 'Article not found' });
-
-      // Increment view count
-      await ctx.prisma.knowledgeBaseArticle.update({
-        where: { id: input.id },
-        data: { views: { increment: 1 } },
-      });
-
+      await ctx.prisma.knowledgeBaseArticle.update({ where: { id: input.id }, data: { views: { increment: 1 } } });
       return article;
     }),
 
@@ -449,26 +418,13 @@ const kbRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
-
-      const slug = input.title
-        .toLowerCase()
-        .trim()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '') +
+      const slug =
+        input.title.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') +
         '-' +
         Date.now().toString(36);
 
       return ctx.prisma.knowledgeBaseArticle.create({
-        data: {
-          organization_id: orgId,
-          title: input.title,
-          slug,
-          content: input.content,
-          excerpt: input.excerpt,
-          status: input.status,
-          tags: input.tags,
-          category_id: input.category_id,
-        },
+        data: { organization_id: orgId, title: input.title, slug, content: input.content, excerpt: input.excerpt, status: input.status, tags: input.tags, category_id: input.category_id },
       });
     }),
 
@@ -487,26 +443,31 @@ const kbRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const { id, ...rest } = input;
-
-      const existing = await ctx.prisma.knowledgeBaseArticle.findFirst({
-        where: { id, organization_id: orgId },
-      });
+      const existing = await ctx.prisma.knowledgeBaseArticle.findFirst({ where: { id, organization_id: orgId } });
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Article not found' });
-
-      return ctx.prisma.knowledgeBaseArticle.update({
-        where: { id },
-        data: rest,
-      });
+      return ctx.prisma.knowledgeBaseArticle.update({ where: { id }, data: rest });
     }),
 });
 
 // ---------------------------------------------------------------------------
-// Export
+// Export helpdeskRouter (merged)
 // ---------------------------------------------------------------------------
 
 export const helpdeskRouter = createTRPCRouter({
+  // Legacy (v1) — keeps existing pages working
   tickets: ticketsRouter,
   categories: categoriesRouter,
-  sla: slaRouter,
+  sla: legacySlaRouter,
   kb: kbRouter,
+
+  // v2 sub-routers
+  ticketsV2: ticketsV2Router,
+  slaV2: slaRouter,
+  teams: teamsRouter,
+  routing: routingRouter,
+  canned: cannedResponsesRouter,
+  emailInbox: emailInboxRouter,
+  kbV2: kbV2Router,
+  automation: automationRouter,
+  reports: reportsRouter,
 });

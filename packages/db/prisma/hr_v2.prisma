@@ -1,0 +1,945 @@
+// =============================================================================
+// HR v2 — New models and enums
+// Doc: 03_HR_v2.md
+// NOTE: org_id fields normalized to organization_id where applicable.
+//       HrLeaveRequest: org_id → organization_id (field renamed)
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum HrGender {
+  male
+  female
+  other
+  prefer_not_to_say
+}
+
+enum HrMaritalStatus {
+  single
+  married
+  divorced
+  widowed
+}
+
+enum HrOnboardingStatus {
+  pending
+  in_progress
+  completed
+}
+
+enum HrLifecycleStage {
+  pre_hire
+  onboarding
+  active
+  notice_period
+  terminated
+  alumni
+}
+
+enum HrSeparationType {
+  resignation
+  termination
+  retirement
+  absconding
+}
+
+enum HrAccrualType {
+  none
+  monthly
+  yearly
+  on_grant
+}
+
+enum HrApplicableGender {
+  all
+  male
+  female
+}
+
+enum HrLeaveStatus {
+  pending
+  approved
+  rejected
+  cancelled
+  withdrawn
+}
+
+enum HrLeaveApprovalStatus {
+  pending
+  approved
+  rejected
+}
+
+enum HrDayType {
+  full
+  first_half
+  second_half
+}
+
+enum HrHolidayType {
+  national
+  regional
+  optional
+  restricted
+}
+
+enum HrAttendanceSource {
+  manual
+  biometric
+  geo
+  web
+  mobile
+}
+
+enum HrAttendanceStatus {
+  present
+  absent
+  half_day
+  holiday
+  weekend
+  on_leave
+  work_from_home
+}
+
+enum HrPayrollPeriodType {
+  monthly
+  semi_monthly
+  bi_weekly
+  weekly
+}
+
+enum HrPayrollStatus {
+  draft
+  processing
+  approved
+  paid
+  archived
+}
+
+enum HrPayrollEntryStatus {
+  pending
+  computed
+  approved
+  paid
+}
+
+enum HrGoalType {
+  company
+  team
+  individual
+}
+
+enum HrGoalPeriod {
+  quarterly
+  half_yearly
+  annual
+  custom
+}
+
+enum HrGoalStatus {
+  draft
+  active
+  at_risk
+  completed
+  cancelled
+}
+
+enum HrMetricType {
+  percent
+  number
+  currency
+  boolean
+}
+
+enum HrReviewType {
+  annual
+  semi_annual
+  quarterly
+  probation
+  three_sixty
+}
+
+enum HrReviewStatus {
+  draft
+  self_review
+  manager_review
+  calibration
+  shared
+  completed
+}
+
+enum HrReviewCycleStatus {
+  upcoming
+  self_review
+  manager_review
+  calibration
+  completed
+}
+
+enum HrDocType {
+  offer_letter
+  contract
+  id_proof
+  address_proof
+  certificate
+  payslip
+  other
+}
+
+enum HrJobType {
+  full_time
+  part_time
+  contract
+  internship
+}
+
+enum HrJobStatus {
+  draft
+  active
+  paused
+  closed
+}
+
+enum HrApplicationStage {
+  applied
+  screening
+  phone_screen
+  interview_1
+  interview_2
+  technical
+  hr
+  offer
+  hired
+  rejected
+  withdrawn
+}
+
+enum HrApplicationSource {
+  linkedin
+  naukri
+  indeed
+  referral
+  direct
+  other
+}
+
+enum HrOnboardingTaskStatus {
+  pending
+  in_progress
+  completed
+  skipped
+}
+
+enum HrAutoAssignRole {
+  hr
+  manager
+  it
+  employee
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+model HrEmployee {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  user_id         String?   @unique @db.Uuid
+
+  employee_code   String    @db.VarChar(20)
+  first_name      String    @db.VarChar(100)
+  last_name       String    @db.VarChar(100)
+  display_name    String?   @db.VarChar(200)
+  email           String    @db.VarChar(255)
+  date_of_birth   DateTime? @db.Date
+  gender          HrGender?
+  blood_group     String?   @db.VarChar(5)
+  nationality     String?   @db.VarChar(100)
+  marital_status  HrMaritalStatus?
+
+  personal_email  String?   @db.VarChar(255)
+  mobile          String?   @db.VarChar(20)
+  phone           String?   @db.VarChar(20)
+  emergency_contact_name     String? @db.VarChar(200)
+  emergency_contact_phone    String? @db.VarChar(20)
+  emergency_contact_relation String? @db.VarChar(100)
+
+  address_line1   String?   @db.VarChar(255)
+  address_line2   String?   @db.VarChar(255)
+  city            String?   @db.VarChar(100)
+  state           String?   @db.VarChar(100)
+  postal_code     String?   @db.VarChar(20)
+  country         String?   @db.VarChar(100)
+  permanent_address  Json?
+  current_address    Json?
+
+  aadhaar_number_enc      String? @db.VarChar(500)
+  pan_number_enc          String? @db.VarChar(500)
+  passport_number         String? @db.VarChar(50)
+  passport_expiry         DateTime? @db.Date
+  bank_account_number_enc String? @db.VarChar(500)
+  bank_ifsc               String? @db.VarChar(20)
+  bank_name               String? @db.VarChar(100)
+  bank_branch             String? @db.VarChar(200)
+  uan_number              String? @db.VarChar(20)
+  esic_number             String? @db.VarChar(20)
+  pf_eligible             Boolean @default(true)
+  esic_eligible           Boolean @default(true)
+  pt_applicable           Boolean @default(true)
+  pt_state                String? @db.VarChar(50)
+
+  department_id        String? @db.Uuid
+  designation_id       String? @db.Uuid
+  manager_id           String? @db.Uuid
+  join_date            DateTime  @db.Date
+  employment_type      String    @default("full_time") @db.VarChar(20)
+  lifecycle_stage      HrLifecycleStage @default(pre_hire)
+  onboarding_status    HrOnboardingStatus @default(pending)
+  probation_end_date   DateTime? @db.Date
+  confirmation_date    DateTime? @db.Date
+  notice_period_days   Int       @default(30)
+  last_working_date    DateTime? @db.Date
+  separation_type      HrSeparationType?
+  rehire_eligible      Boolean   @default(true)
+  exit_interview_done  Boolean   @default(false)
+
+  photo_url            String?   @db.VarChar(500)
+  linkedin_url         String?   @db.VarChar(500)
+  custom_fields        Json?
+
+  created_at           DateTime  @default(now())
+  updated_at           DateTime  @updatedAt
+  deleted_at           DateTime?
+
+  organization         Organization            @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  department           HrDepartment?           @relation(fields: [department_id], references: [id])
+  designation          HrDesignation?          @relation(fields: [designation_id], references: [id])
+  manager              HrEmployee?             @relation("EmployeeManager", fields: [manager_id], references: [id])
+  reports              HrEmployee[]            @relation("EmployeeManager")
+  shift_assignments    HrShiftAssignment[]
+  leave_balances       HrLeaveBalance[]
+  leave_requests       HrLeaveRequest[]
+  leave_approvals      HrLeaveApproval[]
+  attendances          HrAttendance[]
+  payroll_entries      HrPayrollEntry[]
+  salary_revisions     HrEmployeeSalary[]
+  goals                HrGoal[]
+  performance_reviews  HrPerformanceReview[]   @relation("RevieweeEmployee")
+  reviews_given        HrPerformanceReview[]   @relation("ReviewerEmployee")
+  documents            HrDocument[]
+  onboarding_tasks     HrOnboardingTask[]
+
+  @@unique([organization_id, employee_code])
+  @@index([organization_id])
+  @@index([department_id])
+  @@index([manager_id])
+  @@index([lifecycle_stage])
+  @@index([join_date])
+  @@map("hr_employees")
+}
+
+model HrDepartment {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id      String    @db.Uuid
+  name                 String    @db.VarChar(100)
+  description          String?   @db.Text
+  head_employee_id     String?   @db.Uuid
+  parent_department_id String?   @db.Uuid
+  cost_center_code     String?   @db.VarChar(50)
+  budget_amount        Decimal?  @db.Decimal(15, 2)
+  headcount            Int       @default(0)
+  position             Int       @default(0)
+  is_active            Boolean   @default(true)
+  created_at           DateTime  @default(now())
+  updated_at           DateTime  @updatedAt
+
+  organization Organization   @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  parent       HrDepartment?  @relation("DeptHierarchy", fields: [parent_department_id], references: [id])
+  children     HrDepartment[] @relation("DeptHierarchy")
+  employees    HrEmployee[]
+  job_postings HrJobPosting[]
+  designations HrDesignation[]
+
+  @@index([organization_id])
+  @@index([parent_department_id])
+  @@map("hr_departments")
+}
+
+model HrDesignation {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  name            String    @db.VarChar(100)
+  level           Int       @default(1)
+  grade           String?   @db.VarChar(20)
+  department_id   String?   @db.Uuid
+  min_ctc         Decimal?  @db.Decimal(15, 2)
+  max_ctc         Decimal?  @db.Decimal(15, 2)
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+
+  organization Organization  @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  department   HrDepartment? @relation(fields: [department_id], references: [id])
+  employees    HrEmployee[]
+  job_postings HrJobPosting[]
+
+  @@index([organization_id])
+  @@map("hr_designations")
+}
+
+model HrShift {
+  id                         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id            String    @db.Uuid
+  name                       String    @db.VarChar(100)
+  color                      String    @default("#6366f1") @db.VarChar(7)
+  start_time                 String    @db.VarChar(5)
+  end_time                   String    @db.VarChar(5)
+  grace_period_minutes       Int       @default(15)
+  half_day_threshold_minutes Int       @default(240)
+  break_duration_minutes     Int       @default(60)
+  is_night_shift             Boolean   @default(false)
+  overtime_after_minutes     Int       @default(480)
+  weekly_off_days            Int[]
+  is_active                  Boolean   @default(true)
+  created_at                 DateTime  @default(now())
+
+  organization Organization        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  assignments  HrShiftAssignment[]
+  attendances  HrAttendance[]
+
+  @@index([organization_id])
+  @@map("hr_shifts")
+}
+
+model HrShiftAssignment {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employee_id    String    @db.Uuid
+  shift_id       String    @db.Uuid
+  effective_from DateTime  @db.Date
+  effective_to   DateTime? @db.Date
+  created_by     String    @db.Uuid
+  created_at     DateTime  @default(now())
+
+  employee HrEmployee @relation(fields: [employee_id], references: [id], onDelete: Cascade)
+  shift    HrShift    @relation(fields: [shift_id], references: [id])
+
+  @@index([employee_id, effective_from])
+  @@map("hr_shift_assignments")
+}
+
+model HrHolidayCalendar {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String   @db.Uuid
+  name            String   @db.VarChar(100)
+  year            Int
+  region          String?  @db.VarChar(100)
+  created_at      DateTime @default(now())
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  holidays     HrHoliday[]
+
+  @@index([organization_id, year])
+  @@map("hr_holiday_calendars")
+}
+
+model HrHoliday {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  calendar_id String        @db.Uuid
+  name        String        @db.VarChar(200)
+  date        DateTime      @db.Date
+  holiday_type HrHolidayType @default(national)
+  is_half_day Boolean       @default(false)
+  created_at  DateTime      @default(now())
+
+  calendar HrHolidayCalendar @relation(fields: [calendar_id], references: [id], onDelete: Cascade)
+
+  @@index([calendar_id, date])
+  @@map("hr_holidays")
+}
+
+model HrLeaveType {
+  id                    String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id       String             @db.Uuid
+  name                  String             @db.VarChar(100)
+  code                  String             @db.VarChar(20)
+  color                 String             @default("#6366f1") @db.VarChar(7)
+  description           String?            @db.Text
+  accrual_type          HrAccrualType      @default(none)
+  accrual_amount        Decimal            @default(0) @db.Decimal(5, 2)
+  max_balance           Decimal            @default(30) @db.Decimal(5, 2)
+  carry_forward_enabled Boolean            @default(false)
+  carry_forward_max     Decimal            @default(0) @db.Decimal(5, 2)
+  encashment_enabled    Boolean            @default(false)
+  encashment_max        Decimal            @default(0) @db.Decimal(5, 2)
+  applicable_gender     HrApplicableGender @default(all)
+  min_service_days      Int                @default(0)
+  requires_document     Boolean            @default(false)
+  min_days              Decimal            @default(0.5) @db.Decimal(4, 2)
+  max_consecutive_days  Int?
+  advance_notice_days   Int                @default(0)
+  allow_negative        Boolean            @default(false)
+  paid_leave            Boolean            @default(true)
+  is_active             Boolean            @default(true)
+  position              Int                @default(0)
+  created_at            DateTime           @default(now())
+
+  organization   Organization       @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  leave_balances HrLeaveBalance[]
+  leave_requests HrLeaveRequest[]
+
+  @@unique([organization_id, code])
+  @@index([organization_id])
+  @@map("hr_leave_types")
+}
+
+model HrLeaveBalance {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employee_id     String    @db.Uuid
+  leave_type_id   String    @db.Uuid
+  year            Int
+  opening_balance Decimal   @default(0) @db.Decimal(6, 2)
+  accrued         Decimal   @default(0) @db.Decimal(6, 2)
+  taken           Decimal   @default(0) @db.Decimal(6, 2)
+  adjusted        Decimal   @default(0) @db.Decimal(6, 2)
+  carry_forward   Decimal   @default(0) @db.Decimal(6, 2)
+  closing_balance Decimal   @default(0) @db.Decimal(6, 2)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  employee   HrEmployee  @relation(fields: [employee_id], references: [id], onDelete: Cascade)
+  leave_type HrLeaveType @relation(fields: [leave_type_id], references: [id])
+
+  @@unique([employee_id, leave_type_id, year])
+  @@index([employee_id, year])
+  @@map("hr_leave_balances")
+}
+
+model HrLeaveRequest {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String        @db.Uuid
+  employee_id     String        @db.Uuid
+  leave_type_id   String        @db.Uuid
+  start_date      DateTime      @db.Date
+  end_date        DateTime      @db.Date
+  total_days      Decimal       @db.Decimal(5, 2)
+  start_day_type  HrDayType     @default(full)
+  end_day_type    HrDayType     @default(full)
+  reason          String?       @db.Text
+  document_url    String?       @db.VarChar(500)
+  status          HrLeaveStatus @default(pending)
+  approval_level  Int           @default(1)
+  approved_by     String?       @db.Uuid
+  approved_at     DateTime?
+  rejected_by     String?       @db.Uuid
+  rejected_reason String?       @db.Text
+  cancelled_at    DateTime?
+  balance_deducted Boolean      @default(false)
+  notify_emails   String[]
+  created_at      DateTime      @default(now())
+  updated_at      DateTime      @updatedAt
+
+  employee   HrEmployee  @relation(fields: [employee_id], references: [id], onDelete: Cascade)
+  leave_type HrLeaveType @relation(fields: [leave_type_id], references: [id])
+  approvals  HrLeaveApproval[]
+
+  @@index([employee_id, start_date])
+  @@index([status, organization_id])
+  @@map("hr_leave_requests")
+}
+
+model HrLeaveApproval {
+  id               String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leave_request_id String                @db.Uuid
+  level            Int
+  approver_id      String                @db.Uuid
+  status           HrLeaveApprovalStatus @default(pending)
+  remarks          String?               @db.Text
+  actioned_at      DateTime?
+  created_at       DateTime              @default(now())
+
+  leave_request HrLeaveRequest @relation(fields: [leave_request_id], references: [id], onDelete: Cascade)
+  approver      HrEmployee     @relation(fields: [approver_id], references: [id])
+
+  @@index([leave_request_id])
+  @@map("hr_leave_approvals")
+}
+
+model HrAttendance {
+  id                  String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employee_id         String              @db.Uuid
+  shift_id            String?             @db.Uuid
+  date                DateTime            @db.Date
+  check_in            DateTime?
+  check_out           DateTime?
+  check_in_source     HrAttendanceSource  @default(manual)
+  check_out_source    HrAttendanceSource?
+  check_in_lat        Decimal?            @db.Decimal(10, 7)
+  check_in_lng        Decimal?            @db.Decimal(10, 7)
+  check_out_lat       Decimal?            @db.Decimal(10, 7)
+  check_out_lng       Decimal?            @db.Decimal(10, 7)
+  scheduled_hours     Decimal?            @db.Decimal(5, 2)
+  actual_hours        Decimal?            @db.Decimal(5, 2)
+  overtime_hours      Decimal             @default(0) @db.Decimal(5, 2)
+  late_minutes        Int                 @default(0)
+  early_exit_minutes  Int                 @default(0)
+  status              HrAttendanceStatus  @default(present)
+  regularized         Boolean             @default(false)
+  regularized_by      String?             @db.Uuid
+  regularized_at      DateTime?
+  device_id           String?             @db.VarChar(100)
+  ip_address          String?             @db.VarChar(45)
+  notes               String?             @db.Text
+  modified_at         DateTime?
+  created_at          DateTime            @default(now())
+
+  employee HrEmployee @relation(fields: [employee_id], references: [id], onDelete: Cascade)
+  shift    HrShift?   @relation(fields: [shift_id], references: [id])
+
+  @@unique([employee_id, date])
+  @@index([employee_id])
+  @@index([date])
+  @@index([status])
+  @@map("hr_attendance")
+}
+
+model HrPayrollPeriod {
+  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id  String              @db.Uuid
+  name             String              @db.VarChar(100)
+  period_type      HrPayrollPeriodType @default(monthly)
+  year             Int
+  month            Int
+  start_date       DateTime            @db.Date
+  end_date         DateTime            @db.Date
+  payment_date     DateTime            @db.Date
+  status           HrPayrollStatus     @default(draft)
+  processed_by     String?             @db.Uuid
+  approved_by      String?             @db.Uuid
+  processed_at     DateTime?
+  approved_at      DateTime?
+  paid_at          DateTime?
+  total_gross      Decimal?            @db.Decimal(15, 2)
+  total_deductions Decimal?            @db.Decimal(15, 2)
+  total_net        Decimal?            @db.Decimal(15, 2)
+  employee_count   Int?
+  created_at       DateTime            @default(now())
+  updated_at       DateTime            @updatedAt
+
+  organization Organization     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  entries      HrPayrollEntry[]
+
+  @@unique([organization_id, year, month, period_type])
+  @@index([organization_id, status])
+  @@map("hr_payroll_periods")
+}
+
+model HrPayrollEntry {
+  id                String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  period_id         String               @db.Uuid
+  employee_id       String               @db.Uuid
+  status            HrPayrollEntryStatus @default(pending)
+  working_days      Int                  @default(0)
+  paid_days         Decimal              @default(0) @db.Decimal(6, 2)
+  lop_days          Decimal              @default(0) @db.Decimal(6, 2)
+  gross_salary      Decimal              @default(0) @db.Decimal(15, 2)
+  basic             Decimal              @default(0) @db.Decimal(15, 2)
+  hra               Decimal              @default(0) @db.Decimal(15, 2)
+  special_allowance Decimal              @default(0) @db.Decimal(15, 2)
+  other_allowances  Decimal              @default(0) @db.Decimal(15, 2)
+  pf_employee       Decimal              @default(0) @db.Decimal(15, 2)
+  pf_employer       Decimal              @default(0) @db.Decimal(15, 2)
+  esic_employee     Decimal              @default(0) @db.Decimal(15, 2)
+  esic_employer     Decimal              @default(0) @db.Decimal(15, 2)
+  pt                Decimal              @default(0) @db.Decimal(15, 2)
+  tds               Decimal              @default(0) @db.Decimal(15, 2)
+  other_deductions  Decimal              @default(0) @db.Decimal(15, 2)
+  total_deductions  Decimal              @default(0) @db.Decimal(15, 2)
+  net_salary        Decimal              @default(0) @db.Decimal(15, 2)
+  components        Json?
+  computed_at       DateTime?
+  payslip_url       String?              @db.VarChar(500)
+  created_at        DateTime             @default(now())
+  updated_at        DateTime             @updatedAt
+
+  period   HrPayrollPeriod @relation(fields: [period_id], references: [id])
+  employee HrEmployee      @relation(fields: [employee_id], references: [id])
+
+  @@unique([period_id, employee_id])
+  @@index([period_id])
+  @@index([employee_id])
+  @@map("hr_payroll_entries")
+}
+
+model HrSalaryStructure {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  name            String    @db.VarChar(100)
+  effective_from  DateTime  @db.Date
+  components      Json
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+
+  organization     Organization       @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  salary_revisions HrEmployeeSalary[]
+
+  @@index([organization_id])
+  @@map("hr_salary_structures")
+}
+
+model HrEmployeeSalary {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employee_id    String    @db.Uuid
+  structure_id   String    @db.Uuid
+  ctc            Decimal   @db.Decimal(15, 2)
+  effective_from DateTime  @db.Date
+  effective_to   DateTime? @db.Date
+  created_by     String    @db.Uuid
+  created_at     DateTime  @default(now())
+
+  employee  HrEmployee        @relation(fields: [employee_id], references: [id], onDelete: Cascade)
+  structure HrSalaryStructure @relation(fields: [structure_id], references: [id])
+
+  @@index([employee_id, effective_from])
+  @@map("hr_employee_salaries")
+}
+
+model HrGoal {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String      @db.Uuid
+  owner_id       String       @db.Uuid
+  parent_goal_id String?      @db.Uuid
+  title          String       @db.VarChar(500)
+  description    String?      @db.Text
+  goal_type      HrGoalType
+  period         HrGoalPeriod
+  start_date     DateTime     @db.Date
+  end_date       DateTime     @db.Date
+  progress       Decimal      @default(0) @db.Decimal(5, 2)
+  status         HrGoalStatus @default(draft)
+  metric_type    HrMetricType
+  metric_target  Decimal      @db.Decimal(15, 4)
+  metric_current Decimal      @default(0) @db.Decimal(15, 4)
+  metric_unit    String?      @db.VarChar(50)
+  created_by     String       @db.Uuid
+  created_at     DateTime     @default(now())
+  updated_at     DateTime     @updatedAt
+  deleted_at     DateTime?
+
+  owner       HrEmployee  @relation(fields: [owner_id], references: [id])
+  parent_goal HrGoal?     @relation("GoalHierarchy", fields: [parent_goal_id], references: [id])
+  key_results HrGoal[]    @relation("GoalHierarchy")
+
+  @@index([organization_id, owner_id])
+  @@index([organization_id, status])
+  @@map("hr_goals")
+}
+
+model HrPerformanceReviewCycle {
+  id                   String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id      String              @db.Uuid
+  name                 String              @db.VarChar(200)
+  review_type          HrReviewType
+  self_review_start    DateTime            @db.Date
+  self_review_end      DateTime            @db.Date
+  manager_review_start DateTime            @db.Date
+  manager_review_end   DateTime            @db.Date
+  calibration_date     DateTime?           @db.Date
+  share_date           DateTime?           @db.Date
+  status               HrReviewCycleStatus @default(upcoming)
+  created_by           String              @db.Uuid
+  created_at           DateTime            @default(now())
+
+  organization Organization             @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  reviews      HrPerformanceReview[]
+  criteria     HrReviewCriteria[]
+
+  @@index([organization_id])
+  @@map("hr_performance_review_cycles")
+}
+
+model HrReviewCriteria {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cycle_id    String    @db.Uuid
+  name        String    @db.VarChar(200)
+  description String?   @db.Text
+  weight      Decimal   @db.Decimal(5, 2)
+  max_score   Decimal   @default(5) @db.Decimal(3, 2)
+  position    Int       @default(0)
+  created_at  DateTime  @default(now())
+
+  cycle   HrPerformanceReviewCycle @relation(fields: [cycle_id], references: [id], onDelete: Cascade)
+  ratings HrReviewCriteriaRating[]
+
+  @@index([cycle_id])
+  @@map("hr_review_criteria")
+}
+
+model HrPerformanceReview {
+  id                       String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id          String         @db.Uuid
+  employee_id              String         @db.Uuid
+  reviewer_id              String         @db.Uuid
+  review_cycle_id          String         @db.Uuid
+  review_type              HrReviewType   @default(annual)
+  status                   HrReviewStatus @default(draft)
+  self_rating              Decimal?       @db.Decimal(3, 2)
+  manager_rating           Decimal?       @db.Decimal(3, 2)
+  final_rating             Decimal?       @db.Decimal(3, 2)
+  promotion_recommended    Boolean?
+  rating_label             String?        @db.VarChar(50)
+  feedback_strengths       String?        @db.Text
+  feedback_improvements    String?        @db.Text
+  goals_for_next_period    String?        @db.Text
+  shared_with_employee_at  DateTime?
+  employee_acknowledged_at DateTime?
+  created_at               DateTime       @default(now())
+  updated_at               DateTime       @updatedAt
+  deleted_at               DateTime?
+
+  employee HrEmployee               @relation("RevieweeEmployee", fields: [employee_id], references: [id])
+  reviewer HrEmployee               @relation("ReviewerEmployee", fields: [reviewer_id], references: [id])
+  cycle    HrPerformanceReviewCycle @relation(fields: [review_cycle_id], references: [id])
+  criteria_ratings HrReviewCriteriaRating[]
+
+  @@index([organization_id, employee_id])
+  @@index([review_cycle_id])
+  @@map("hr_performance_reviews")
+}
+
+model HrReviewCriteriaRating {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  review_id     String    @db.Uuid
+  criteria_id   String    @db.Uuid
+  self_score    Decimal?  @db.Decimal(3, 2)
+  manager_score Decimal?  @db.Decimal(3, 2)
+  comments      String?   @db.Text
+
+  review   HrPerformanceReview @relation(fields: [review_id], references: [id], onDelete: Cascade)
+  criteria HrReviewCriteria    @relation(fields: [criteria_id], references: [id])
+
+  @@unique([review_id, criteria_id])
+  @@map("hr_review_criteria_ratings")
+}
+
+model HrDocument {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employee_id String    @db.Uuid
+  doc_type    HrDocType
+  name        String    @db.VarChar(255)
+  file_url    String    @db.VarChar(500)
+  expiry_date DateTime? @db.Date
+  is_verified Boolean   @default(false)
+  verified_by String?   @db.Uuid
+  verified_at DateTime?
+  uploaded_by String    @db.Uuid
+  deleted_at  DateTime?
+  created_at  DateTime  @default(now())
+
+  employee HrEmployee @relation(fields: [employee_id], references: [id], onDelete: Cascade)
+
+  @@index([employee_id])
+  @@map("hr_documents")
+}
+
+model HrJobPosting {
+  id                 String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id    String      @db.Uuid
+  title              String      @db.VarChar(255)
+  department_id      String?     @db.Uuid
+  designation_id     String?     @db.Uuid
+  location           String?     @db.VarChar(255)
+  job_type           HrJobType   @default(full_time)
+  experience_min     Int         @default(0)
+  experience_max     Int?
+  salary_min         Decimal?    @db.Decimal(15, 2)
+  salary_max         Decimal?    @db.Decimal(15, 2)
+  currency           String      @default("INR") @db.VarChar(3)
+  description        String?     @db.Text
+  requirements       String?     @db.Text
+  posted_at          DateTime?
+  closes_at          DateTime?
+  status             HrJobStatus @default(draft)
+  openings           Int         @default(1)
+  applications_count Int         @default(0)
+  created_by         String      @db.Uuid
+  created_at         DateTime    @default(now())
+  updated_at         DateTime    @updatedAt
+  deleted_at         DateTime?
+
+  organization  Organization   @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  department    HrDepartment?  @relation(fields: [department_id], references: [id])
+  designation   HrDesignation? @relation(fields: [designation_id], references: [id])
+  applications  HrApplication[]
+
+  @@index([organization_id, status])
+  @@map("hr_job_postings")
+}
+
+model HrApplication {
+  id                   String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  job_id               String              @db.Uuid
+  candidate_name       String              @db.VarChar(200)
+  email                String              @db.VarChar(255)
+  phone                String?             @db.VarChar(20)
+  resume_url           String?             @db.VarChar(500)
+  linkedin_url         String?             @db.VarChar(500)
+  cover_letter         String?             @db.Text
+  current_ctc          Decimal?            @db.Decimal(15, 2)
+  expected_ctc         Decimal?            @db.Decimal(15, 2)
+  notice_period_days   Int?
+  stage                HrApplicationStage  @default(applied)
+  stage_changed_at     DateTime?
+  rejection_reason     String?             @db.VarChar(500)
+  source               HrApplicationSource?
+  referrer_employee_id String?             @db.Uuid
+  score                Int                 @default(0)
+  custom_fields        Json?
+  created_at           DateTime            @default(now())
+  updated_at           DateTime            @updatedAt
+  deleted_at           DateTime?
+
+  job HrJobPosting @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
+  @@index([job_id, stage])
+  @@map("hr_applications")
+}
+
+model HrOnboardingTemplate {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  name            String    @db.VarChar(200)
+  description     String?   @db.Text
+  tasks           Json
+  is_active       Boolean   @default(true)
+  created_by      String    @db.Uuid
+  created_at      DateTime  @default(now())
+  deleted_at      DateTime?
+
+  organization     Organization       @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  onboarding_tasks HrOnboardingTask[]
+
+  @@index([organization_id])
+  @@map("hr_onboarding_templates")
+}
+
+model HrOnboardingTask {
+  id               String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employee_id      String                 @db.Uuid
+  template_id      String?                @db.Uuid
+  template_task_id String?                @db.VarChar(36)
+  title            String                 @db.VarChar(255)
+  category         String                 @db.VarChar(100)
+  assignee_id      String?                @db.Uuid
+  due_date         DateTime?              @db.Date
+  status           HrOnboardingTaskStatus @default(pending)
+  completed_at     DateTime?
+  notes            String?                @db.Text
+  created_at       DateTime               @default(now())
+
+  employee HrEmployee            @relation(fields: [employee_id], references: [id], onDelete: Cascade)
+  template HrOnboardingTemplate? @relation(fields: [template_id], references: [id])
+
+  @@index([employee_id])
+  @@map("hr_onboarding_tasks")
+}

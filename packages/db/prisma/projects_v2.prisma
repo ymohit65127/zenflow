@@ -1,0 +1,442 @@
+// =============================================================================
+// Projects v2 — New models and enums
+// Doc: 02_PROJECTS_v2.md
+// SKIP: Project, ProjectMember, Task, TaskAssignment, TaskComment, Milestone, Sprint
+//       (already in schema.prisma)
+// NOTE: TaskStatus already exists as an ENUM in schema.prisma — renamed to
+//       ProjectTaskStatusConfig to avoid conflict.
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum ProjectType {
+  software
+  marketing
+  design
+  construction
+  research
+  other
+}
+
+enum ProjectMethodology {
+  agile
+  scrum
+  kanban
+  waterfall
+  hybrid
+}
+
+enum ProjectVisibility {
+  private
+  team
+  org
+  public
+}
+
+enum ProjectHealthStatus {
+  on_track
+  at_risk
+  off_track
+  completed
+}
+
+enum ProjectDefaultView {
+  list
+  board
+  gantt
+  timeline
+  calendar
+}
+
+enum ProjectMemberRole {
+  owner
+  manager
+  member
+  viewer
+  guest
+}
+
+enum PhaseStatus {
+  not_started
+  in_progress
+  completed
+  on_hold
+  cancelled
+}
+
+enum MilestoneStatus {
+  pending
+  achieved
+  missed
+  cancelled
+}
+
+enum TaskStatusType {
+  not_started
+  in_progress
+  in_review
+  blocked
+  done
+  cancelled
+}
+
+enum TaskPriority {
+  none
+  low
+  medium
+  high
+  urgent
+}
+
+enum TaskApprovalStatus {
+  not_required
+  pending
+  approved
+  rejected
+}
+
+enum DependencyType {
+  finish_to_start
+  start_to_start
+  finish_to_finish
+  start_to_finish
+}
+
+enum TaskAssigneeRole {
+  assignee
+  reviewer
+  observer
+}
+
+enum RiskCategory {
+  technical
+  schedule
+  budget
+  resource
+  external
+  other
+}
+
+enum RiskProbability {
+  low
+  medium
+  high
+}
+
+enum RiskImpact {
+  low
+  medium
+  high
+  critical
+}
+
+enum RiskStatus {
+  identified
+  mitigated
+  accepted
+  closed
+}
+
+enum BudgetCategory {
+  labor
+  materials
+  travel
+  tools
+  other
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+model ProjectPhase {
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String      @db.Uuid
+  project_id      String      @db.Uuid
+  name            String      @db.VarChar(255)
+  description     String?     @db.Text
+  position        Int         @default(0)
+  status          PhaseStatus @default(not_started)
+  start_date      DateTime?   @db.Date
+  end_date        DateTime?   @db.Date
+  color           String?     @db.VarChar(7)
+  created_at      DateTime    @default(now())
+  updated_at      DateTime    @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@index([project_id])
+  @@map("project_phases")
+}
+
+model ProjectMilestone {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String          @db.Uuid
+  project_id      String          @db.Uuid
+  phase_id        String?         @db.Uuid
+  name            String          @db.VarChar(255)
+  description     String?         @db.Text
+  due_date        DateTime        @db.Date
+  status          MilestoneStatus @default(pending)
+  achieved_at     DateTime?
+  created_at      DateTime        @default(now())
+  updated_at      DateTime        @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@index([project_id])
+  @@index([phase_id])
+  @@map("project_milestones")
+}
+
+model TaskDependency {
+  id                String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id   String         @db.Uuid
+  task_id           String         @db.Uuid
+  depends_on_id     String         @db.Uuid
+  dependency_type   DependencyType @default(finish_to_start)
+  lag_days          Int            @default(0)
+  created_at        DateTime       @default(now())
+  deleted_at        DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([task_id, depends_on_id])
+  @@index([organization_id])
+  @@index([task_id])
+  @@index([depends_on_id])
+  @@map("task_dependencies")
+}
+
+model TaskAssignee {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String           @db.Uuid
+  task_id         String           @db.Uuid
+  user_id         String           @db.Uuid
+  role            TaskAssigneeRole @default(assignee)
+  assigned_by     String?          @db.Uuid
+  created_at      DateTime         @default(now())
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([task_id, user_id])
+  @@index([organization_id])
+  @@index([task_id])
+  @@index([user_id])
+  @@map("task_assignees")
+}
+
+model TaskAttachment {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  task_id         String    @db.Uuid
+  file_name       String    @db.VarChar(255)
+  file_size       BigInt
+  mime_type       String    @db.VarChar(127)
+  storage_path    String    @db.VarChar(1000)
+  uploaded_by     String    @db.Uuid
+  created_at      DateTime  @default(now())
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@index([task_id])
+  @@map("task_attachments")
+}
+
+model TaskChecklist {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  task_id         String    @db.Uuid
+  name            String    @db.VarChar(255)
+  position        Int       @default(0)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  items        TaskChecklistItem[]
+
+  @@index([organization_id])
+  @@index([task_id])
+  @@map("task_checklists")
+}
+
+model TaskChecklistItem {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  checklist_id    String    @db.Uuid
+  title           String    @db.VarChar(500)
+  is_checked      Boolean   @default(false)
+  checked_by      String?   @db.Uuid
+  checked_at      DateTime?
+  position        Int       @default(0)
+  created_at      DateTime  @default(now())
+  deleted_at      DateTime?
+
+  organization Organization  @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  checklist    TaskChecklist @relation(fields: [checklist_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@index([checklist_id])
+  @@map("task_checklist_items")
+}
+
+model TaskCustomField {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  project_id      String    @db.Uuid
+  name            String    @db.VarChar(200)
+  field_key       String    @db.VarChar(100)
+  field_type      String    @db.VarChar(50)
+  options         Json?
+  is_required     Boolean   @default(false)
+  position        Int       @default(0)
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+  deleted_at      DateTime?
+
+  organization Organization       @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  values       TaskCustomFieldValue[]
+
+  @@unique([project_id, field_key])
+  @@index([organization_id])
+  @@index([project_id])
+  @@map("task_custom_fields")
+}
+
+model TaskCustomFieldValue {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  task_id         String    @db.Uuid
+  field_id        String    @db.Uuid
+  value_text      String?   @db.Text
+  value_number    Decimal?  @db.Decimal(15, 4)
+  value_date      DateTime?
+  value_boolean   Boolean?
+  value_json      Json?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  organization Organization    @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  field        TaskCustomField @relation(fields: [field_id], references: [id], onDelete: Cascade)
+
+  @@unique([task_id, field_id])
+  @@index([organization_id])
+  @@index([task_id])
+  @@map("task_custom_field_values")
+}
+
+model TaskTimeLog {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  task_id         String    @db.Uuid
+  user_id         String    @db.Uuid
+  logged_date     DateTime  @db.Date
+  minutes         Int
+  description     String?   @db.Text
+  is_billable     Boolean   @default(false)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@index([task_id])
+  @@index([user_id])
+  @@map("task_time_logs")
+}
+
+model TaskRecurrence {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  task_id         String    @db.Uuid
+  cron_expression String    @db.VarChar(100)
+  timezone        String    @db.VarChar(100)
+  next_run_at     DateTime?
+  last_run_at     DateTime?
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@index([task_id])
+  @@map("task_recurrences")
+}
+
+model ProjectRisk {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String          @db.Uuid
+  project_id      String          @db.Uuid
+  title           String          @db.VarChar(500)
+  description     String?         @db.Text
+  category        RiskCategory    @default(other)
+  probability     RiskProbability @default(medium)
+  impact          RiskImpact      @default(medium)
+  status          RiskStatus      @default(identified)
+  owner_id        String?         @db.Uuid
+  mitigation_plan String?         @db.Text
+  created_by      String          @db.Uuid
+  created_at      DateTime        @default(now())
+  updated_at      DateTime        @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@index([project_id])
+  @@map("project_risks")
+}
+
+model ProjectBudgetEntry {
+  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String         @db.Uuid
+  project_id      String         @db.Uuid
+  category        BudgetCategory @default(other)
+  description     String         @db.VarChar(500)
+  amount          Decimal        @db.Decimal(15, 4)
+  currency        String         @default("USD") @db.VarChar(3)
+  is_expense      Boolean        @default(true)
+  entry_date      DateTime       @db.Date
+  created_by      String         @db.Uuid
+  created_at      DateTime       @default(now())
+  updated_at      DateTime       @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@index([project_id])
+  @@map("project_budget_entries")
+}
+
+model ProjectTemplate {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String?   @db.Uuid
+  name            String    @db.VarChar(255)
+  description     String?   @db.Text
+  category        String?   @db.VarChar(100)
+  methodology     ProjectMethodology?
+  config          Json
+  is_global       Boolean   @default(false)
+  is_active       Boolean   @default(true)
+  created_by      String?   @db.Uuid
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  deleted_at      DateTime?
+
+  @@index([organization_id])
+  @@map("project_templates")
+}

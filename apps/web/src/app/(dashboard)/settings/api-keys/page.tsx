@@ -2,14 +2,15 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Plus, Copy, Trash2, Loader2, Key, AlertTriangle, Check } from "lucide-react";
+import { Plus, Copy, Trash2, Loader2, Key, AlertTriangle, Check, Info } from "lucide-react";
+import { format } from "date-fns";
 import { api } from "@/trpc/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -27,13 +28,30 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { formatDate, timeAgo } from "@/lib/utils";
 
-type Scope = "read" | "write" | "admin";
-const SCOPES: { value: Scope; label: string; description: string }[] = [
-  { value: "read", label: "Read", description: "Read access to all resources" },
-  { value: "write", label: "Write", description: "Create and update resources" },
-  { value: "admin", label: "Admin", description: "Full access including deletions" },
+function timeAgo(date: Date | string): string {
+  const d = new Date(date);
+  const diff = Date.now() - d.getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+
+const SCOPE_OPTIONS = [
+  { value: "crm:read", label: "CRM — Read" },
+  { value: "crm:write", label: "CRM — Write" },
+  { value: "hr:read", label: "HR — Read" },
+  { value: "hr:write", label: "HR — Write" },
+  { value: "projects:read", label: "Projects — Read" },
+  { value: "projects:write", label: "Projects — Write" },
+  { value: "helpdesk:read", label: "Helpdesk — Read" },
+  { value: "helpdesk:write", label: "Helpdesk — Write" },
+  { value: "accounting:read", label: "Accounting — Read" },
+  { value: "inventory:read", label: "Inventory — Read" },
 ];
 
 export default function ApiKeysPage() {
@@ -41,41 +59,39 @@ export default function ApiKeysPage() {
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
-  const [selectedScopes, setSelectedScopes] = useState<Scope[]>(["read"]);
+  const [selectedScopes, setSelectedScopes] = useState<string[]>(["crm:read"]);
+  const [expireDays, setExpireDays] = useState<string>("");
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-
   const [revokeKeyId, setRevokeKeyId] = useState<string | null>(null);
 
-  const { data: apiKeys, isLoading } = api.settings.apiKeys.list.useQuery();
+  const { data: apiTokens, isLoading } = api.platform.apiTokens.list.useQuery();
 
-  const createMutation = api.settings.apiKeys.create.useMutation({
+  const createMutation = api.platform.apiTokens.create.useMutation({
     onSuccess: (data) => {
-      setGeneratedKey(data.fullKey);
-      void utils.settings.apiKeys.list.invalidate();
+      setGeneratedKey(data.raw);
+      void utils.platform.apiTokens.list.invalidate();
     },
     onError: (err) => toast.error(err.message),
   });
 
-  const revokeMutation = api.settings.apiKeys.revoke.useMutation({
+  const revokeMutation = api.platform.apiTokens.revoke.useMutation({
     onSuccess: () => {
       toast.success("API key revoked.");
       setRevokeKeyId(null);
-      void utils.settings.apiKeys.list.invalidate();
+      void utils.platform.apiTokens.list.invalidate();
     },
     onError: (err) => toast.error(err.message),
   });
 
   const handleCreate = () => {
-    if (!newKeyName.trim()) {
-      toast.error("Please enter a key name.");
-      return;
-    }
-    if (selectedScopes.length === 0) {
-      toast.error("Select at least one scope.");
-      return;
-    }
-    createMutation.mutate({ name: newKeyName, scopes: selectedScopes });
+    if (!newKeyName.trim()) return toast.error("Please enter a key name.");
+    if (selectedScopes.length === 0) return toast.error("Select at least one scope.");
+    createMutation.mutate({
+      name: newKeyName,
+      scopes: selectedScopes,
+      expires_in_days: expireDays ? parseInt(expireDays) : undefined,
+    });
   };
 
   const handleCopy = () => {
@@ -83,22 +99,24 @@ export default function ApiKeysPage() {
     void navigator.clipboard.writeText(generatedKey);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-    toast.success("API key copied to clipboard.");
+    toast.success("Copied to clipboard.");
   };
 
-  const handleCloseCreate = () => {
+  const handleClose = () => {
     setCreateDialogOpen(false);
     setNewKeyName("");
-    setSelectedScopes(["read"]);
+    setSelectedScopes(["crm:read"]);
+    setExpireDays("");
     setGeneratedKey(null);
     setCopied(false);
   };
 
-  const toggleScope = (scope: Scope) => {
+  const toggleScope = (scope: string) =>
     setSelectedScopes((prev) =>
       prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope]
     );
-  };
+
+  const revokeToken = apiTokens?.find((k: any) => k.id === revokeKeyId);
 
   if (isLoading) {
     return (
@@ -108,15 +126,13 @@ export default function ApiKeysPage() {
     );
   }
 
-  const revokeKey = apiKeys?.find((k) => k.id === revokeKeyId);
-
   return (
     <div className="space-y-6 max-w-4xl">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">API Keys</h2>
           <p className="text-sm text-muted-foreground">
-            Create and manage API keys for programmatic access.
+            Create and manage API keys for programmatic access to ZenFlow.
           </p>
         </div>
         <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
@@ -125,8 +141,15 @@ export default function ApiKeysPage() {
         </Button>
       </div>
 
-      {/* Keys table */}
-      {apiKeys && apiKeys.length > 0 ? (
+      <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-100 text-blue-800 text-xs dark:bg-blue-950 dark:border-blue-900 dark:text-blue-300">
+        <Info className="w-4 h-4 shrink-0 mt-0.5" />
+        <span>
+          API keys grant programmatic access to your ZenFlow data. Keep them secure and never
+          commit them to source control.
+        </span>
+      </div>
+
+      {apiTokens && apiTokens.length > 0 ? (
         <div className="border border-border rounded-xl overflow-hidden">
           <Table>
             <TableHeader>
@@ -136,12 +159,13 @@ export default function ApiKeysPage() {
                 <TableHead>Scopes</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead>Last Used</TableHead>
+                <TableHead>Expires</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {apiKeys.map((key) => (
+              {apiTokens.map((key: any) => (
                 <TableRow key={key.id}>
                   <TableCell className="font-medium text-sm">{key.name}</TableCell>
                   <TableCell>
@@ -150,19 +174,27 @@ export default function ApiKeysPage() {
                     </code>
                   </TableCell>
                   <TableCell>
-                    <div className="flex gap-1 flex-wrap">
-                      {key.scopes.map((scope) => (
-                        <Badge key={scope} variant="outline" className="text-xs">
-                          {scope}
+                    <div className="flex gap-1 flex-wrap max-w-40">
+                      {key.scopes.slice(0, 2).map((s: string) => (
+                        <Badge key={s} variant="outline" className="text-xs">
+                          {s}
                         </Badge>
                       ))}
+                      {key.scopes.length > 2 && (
+                        <Badge variant="outline" className="text-xs">
+                          +{key.scopes.length - 2}
+                        </Badge>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {formatDate(key.created_at)}
+                    {format(new Date(key.created_at), "MMM dd, yyyy")}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {key.last_used_at ? timeAgo(key.last_used_at) : "Never"}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {key.expires_at ? format(new Date(key.expires_at), "MMM dd, yyyy") : "Never"}
                   </TableCell>
                   <TableCell>
                     <Badge variant={key.is_active ? "success" : "secondary"}>
@@ -202,13 +234,13 @@ export default function ApiKeysPage() {
       )}
 
       {/* Create dialog */}
-      <Dialog open={createDialogOpen} onOpenChange={(open) => !open && handleCloseCreate()}>
+      <Dialog open={createDialogOpen} onOpenChange={(o) => !o && handleClose()}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Generate API Key</DialogTitle>
             <DialogDescription>
               {generatedKey
-                ? "Your API key has been generated. Copy it now — you won't see it again."
+                ? "Copy your key now — it won't be shown again."
                 : "Create a new API key for programmatic access to ZenFlow."}
             </DialogDescription>
           </DialogHeader>
@@ -226,29 +258,19 @@ export default function ApiKeysPage() {
                 <code className="flex-1 text-xs bg-muted border border-border px-3 py-2.5 rounded-lg font-mono break-all select-all">
                   {generatedKey}
                 </code>
-                <Button
-                  size="icon"
-                  variant="outline"
-                  onClick={handleCopy}
-                  className="shrink-0"
-                >
-                  {copied ? (
-                    <Check className="w-4 h-4 text-green-500" />
-                  ) : (
-                    <Copy className="w-4 h-4" />
-                  )}
+                <Button size="icon" variant="outline" onClick={handleCopy} className="shrink-0">
+                  {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
                 </Button>
               </div>
               <DialogFooter>
-                <Button onClick={handleCloseCreate}>Done</Button>
+                <Button onClick={handleClose}>Done</Button>
               </DialogFooter>
             </div>
           ) : (
             <div className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="key-name">Key Name</Label>
+                <Label>Key Name</Label>
                 <Input
-                  id="key-name"
                   value={newKeyName}
                   onChange={(e) => setNewKeyName(e.target.value)}
                   placeholder="e.g. Production Server"
@@ -256,27 +278,33 @@ export default function ApiKeysPage() {
               </div>
               <div className="space-y-2">
                 <Label>Scopes</Label>
-                {SCOPES.map((scope) => (
-                  <div key={scope.value} className="flex items-start gap-3">
-                    <Checkbox
-                      id={`scope-${scope.value}`}
-                      checked={selectedScopes.includes(scope.value)}
-                      onCheckedChange={() => toggleScope(scope.value)}
-                    />
-                    <div>
-                      <label
-                        htmlFor={`scope-${scope.value}`}
-                        className="text-sm font-medium cursor-pointer"
-                      >
-                        {scope.label}
+                <div className="space-y-1.5 max-h-48 overflow-y-auto border border-border rounded-lg p-3">
+                  {SCOPE_OPTIONS.map((s) => (
+                    <div key={s.value} className="flex items-center gap-2">
+                      <Checkbox
+                        id={`sc-${s.value}`}
+                        checked={selectedScopes.includes(s.value)}
+                        onCheckedChange={() => toggleScope(s.value)}
+                      />
+                      <label htmlFor={`sc-${s.value}`} className="text-sm cursor-pointer">
+                        {s.label}
                       </label>
-                      <p className="text-xs text-muted-foreground">{scope.description}</p>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Expires in (days, optional)</Label>
+                <Input
+                  type="number"
+                  value={expireDays}
+                  onChange={(e) => setExpireDays(e.target.value)}
+                  placeholder="Never"
+                  min={1}
+                />
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={handleCloseCreate}>
+                <Button variant="outline" onClick={handleClose}>
                   Cancel
                 </Button>
                 <Button
@@ -293,14 +321,13 @@ export default function ApiKeysPage() {
       </Dialog>
 
       {/* Revoke confirmation */}
-      <Dialog open={!!revokeKeyId} onOpenChange={(open) => !open && setRevokeKeyId(null)}>
+      <Dialog open={!!revokeKeyId} onOpenChange={(o) => !o && setRevokeKeyId(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Revoke API Key</DialogTitle>
             <DialogDescription>
-              Are you sure you want to revoke{" "}
-              <strong>&quot;{revokeKey?.name}&quot;</strong>? Any application using this key
-              will immediately lose access.
+              Any application using{" "}
+              <strong>&quot;{revokeToken?.name}&quot;</strong> will immediately lose access.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -310,9 +337,7 @@ export default function ApiKeysPage() {
             <Button
               variant="destructive"
               loading={revokeMutation.isPending}
-              onClick={() =>
-                revokeKeyId && revokeMutation.mutate({ keyId: revokeKeyId })
-              }
+              onClick={() => revokeKeyId && revokeMutation.mutate({ id: revokeKeyId })}
             >
               Revoke Key
             </Button>

@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ChevronRight,
   Grid3x3,
+  Bookmark,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/trpc/react";
@@ -278,6 +279,34 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
             >
               <Grid3x3 className="w-3.5 h-3.5 flex-shrink-0" />
               Browse channels
+            </Link>
+          </div>
+
+          {/* Bookmarks */}
+          <div className="px-2 mt-1">
+            <Link
+              href="/chat/bookmarks"
+              className={cn(
+                "flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-all",
+                pathname === "/chat/bookmarks" && "bg-brand-500/10 text-brand-600 dark:text-brand-400 font-medium"
+              )}
+            >
+              <Bookmark className="w-3.5 h-3.5 flex-shrink-0" />
+              Saved messages
+            </Link>
+          </div>
+
+          {/* Search */}
+          <div className="px-2 mt-1">
+            <Link
+              href="/chat/search"
+              className={cn(
+                "flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-all",
+                pathname === "/chat/search" && "bg-brand-500/10 text-brand-600 dark:text-brand-400 font-medium"
+              )}
+            >
+              <Search className="w-3.5 h-3.5 flex-shrink-0" />
+              Search messages
             </Link>
           </div>
         </nav>

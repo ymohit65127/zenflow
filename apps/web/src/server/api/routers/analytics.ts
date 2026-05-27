@@ -2,6 +2,13 @@ import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 
+// ─── Analytics v2 Sub-routers ─────────────────────────────────────────────────
+import { dashboardsRouter } from './analytics/dashboards';
+import { reportsV2Router } from './analytics/reports_v2';
+import { dataAlertsRouter } from './analytics/dataAlerts';
+import { savedFiltersRouter } from './analytics/savedFilters';
+import { queryRunnerRouter } from './analytics/queryRunner';
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function startOfMonth(date: Date) {
@@ -508,4 +515,11 @@ export const analyticsRouter = createTRPCRouter({
 
   widgets: widgetsRouter,
   reports: reportsRouter,
+
+  // ── Analytics v2 ──────────────────────────────────────────────────────────
+  dashboards: dashboardsRouter,
+  reportsV2: reportsV2Router,
+  alerts: dataAlertsRouter,
+  savedFilters: savedFiltersRouter,
+  query: queryRunnerRouter,
 });

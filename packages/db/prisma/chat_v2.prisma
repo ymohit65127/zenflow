@@ -1,0 +1,315 @@
+// =============================================================================
+// Chat v2 — New models and enums
+// Doc: 11_CHAT_v2.md
+// Existing: Channel, ChannelMember, ChatMessage, Attachment (in schema.prisma)
+// New models prefixed with Chat. content_tsvector Unsupported() omitted.
+// NOTE: ChannelType already exists as enum in schema.prisma — ChatChannelType used.
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum ChatChannelType {
+  public
+  private
+  dm
+  group_dm
+}
+
+enum ChatMessageType {
+  text
+  system
+  file
+  voice
+  video
+  workflow_notification
+  bot
+}
+
+enum DeliveryStatus {
+  sent
+  delivered
+  read
+}
+
+enum UserStatus {
+  online
+  away
+  dnd
+  offline
+}
+
+enum MembershipRole {
+  owner
+  admin
+  member
+  guest
+}
+
+enum NotifPreference {
+  all
+  mentions
+  nothing
+}
+
+enum ScheduledStatus {
+  pending
+  sent
+  cancelled
+}
+
+enum BotType {
+  workflow
+  zenflow_system
+  custom
+}
+
+enum CallType {
+  audio
+  video
+  screen_share
+}
+
+enum CallStatus {
+  ringing
+  active
+  ended
+  missed
+  declined
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+model ChatChannel {
+  id                  String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id     String          @db.Uuid
+  name                String          @db.VarChar(200)
+  description         String?         @db.Text
+  topic               String?         @db.VarChar(500)
+  icon                String?         @db.VarChar(100)
+  channel_type        ChatChannelType @default(public)
+  is_archived         Boolean         @default(false)
+  archived_at         DateTime?
+  archived_by         String?         @db.VarChar(36)
+  message_count       Int             @default(0)
+  member_count        Int             @default(0)
+  pinned_message_ids  String[]
+  last_message_id     String?         @db.VarChar(36)
+  last_message_at     DateTime?
+  retention_days      Int?
+  purpose             String?         @db.VarChar(500)
+  created_by          String          @db.Uuid
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+  deleted_at          DateTime?
+
+  organization Organization         @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  memberships  ChatMembership[]
+  messages     ChatMessageV2[]
+  webhooks     ChatIncomingWebhook[]
+  calls        ChatCall[]
+  scheduled    ChatScheduledMessage[]
+
+  @@index([organization_id, channel_type, is_archived])
+  @@map("chat_channels")
+}
+
+model ChatMessageV2 {
+  id                     String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  channel_id             String          @db.Uuid
+  user_id                String          @db.Uuid
+  content                String          @db.Text
+  thread_parent_id       String?         @db.Uuid
+  thread_reply_count     Int             @default(0)
+  thread_last_reply_at   DateTime?
+  thread_participant_ids String[]
+  edited_at              DateTime?
+  deleted_at             DateTime?
+  is_pinned              Boolean         @default(false)
+  pinned_by              String?         @db.VarChar(36)
+  pinned_at              DateTime?
+  message_type           ChatMessageType @default(text)
+  metadata               Json?
+  forwarded_from_id      String?         @db.Uuid
+  delivery_status        DeliveryStatus  @default(sent)
+  reactions_summary      Json?
+  created_at             DateTime        @default(now())
+
+  channel        ChatChannel              @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  thread_parent  ChatMessageV2?           @relation("ThreadReplies", fields: [thread_parent_id], references: [id])
+  thread_replies ChatMessageV2[]          @relation("ThreadReplies")
+  forwarded_from ChatMessageV2?           @relation("ForwardedMessages", fields: [forwarded_from_id], references: [id])
+  forwards       ChatMessageV2[]          @relation("ForwardedMessages")
+  attachments    ChatMessageAttachment[]
+  reactions      ChatReaction[]
+  bookmarks      ChatBookmark[]
+
+  @@index([channel_id, created_at, deleted_at])
+  @@index([thread_parent_id])
+  @@map("chat_messages_v2")
+}
+
+model ChatMessageAttachment {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  message_id       String   @db.Uuid
+  file_name        String   @db.VarChar(255)
+  file_size        BigInt
+  mime_type        String   @db.VarChar(127)
+  storage_path     String   @db.VarChar(1000)
+  thumbnail_path   String?  @db.VarChar(1000)
+  duration_seconds Int?
+  width            Int?
+  height           Int?
+  created_at       DateTime @default(now())
+
+  message ChatMessageV2 @relation(fields: [message_id], references: [id], onDelete: Cascade)
+
+  @@index([message_id])
+  @@map("chat_message_attachments")
+}
+
+model ChatReaction {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  message_id String   @db.Uuid
+  user_id    String   @db.Uuid
+  emoji      String   @db.VarChar(50)
+  created_at DateTime @default(now())
+
+  message ChatMessageV2 @relation(fields: [message_id], references: [id], onDelete: Cascade)
+
+  @@unique([message_id, user_id, emoji])
+  @@index([message_id])
+  @@map("chat_reactions")
+}
+
+model ChatUserStatus {
+  id                String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id           String     @unique @db.Uuid
+  status            UserStatus @default(offline)
+  status_text       String?    @db.VarChar(100)
+  status_emoji      String?    @db.VarChar(50)
+  status_expires_at DateTime?
+  dnd_until         DateTime?
+  last_seen_at      DateTime   @default(now())
+  created_at        DateTime   @default(now())
+  updated_at        DateTime   @updatedAt
+
+  @@map("chat_user_statuses")
+}
+
+model ChatMembership {
+  id                      String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  channel_id              String          @db.Uuid
+  user_id                 String          @db.Uuid
+  role                    MembershipRole  @default(member)
+  last_read_message_id    String?         @db.VarChar(36)
+  last_read_at            DateTime?
+  notification_preference NotifPreference @default(all)
+  is_muted                Boolean         @default(false)
+  muted_until             DateTime?
+  is_starred              Boolean         @default(false)
+  joined_at               DateTime        @default(now())
+  updated_at              DateTime        @updatedAt
+
+  channel ChatChannel @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+
+  @@unique([channel_id, user_id])
+  @@index([user_id, is_starred])
+  @@map("chat_memberships")
+}
+
+model ChatBookmark {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String   @db.Uuid
+  message_id String   @db.Uuid
+  note       String?  @db.VarChar(500)
+  created_at DateTime @default(now())
+
+  message ChatMessageV2 @relation(fields: [message_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, message_id])
+  @@map("chat_bookmarks")
+}
+
+model ChatScheduledMessage {
+  id           String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  channel_id   String          @db.Uuid
+  user_id      String          @db.Uuid
+  content      String          @db.Text
+  attachments  Json?
+  scheduled_at DateTime
+  sent_at      DateTime?
+  status       ScheduledStatus @default(pending)
+  created_at   DateTime        @default(now())
+
+  channel ChatChannel @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduled_at])
+  @@map("chat_scheduled_messages")
+}
+
+model ChatIncomingWebhook {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String  @db.Uuid
+  channel_id   String    @db.Uuid
+  name         String    @db.VarChar(200)
+  description  String?   @db.VarChar(500)
+  token        String    @unique @db.VarChar(64)
+  icon_url     String?   @db.VarChar(500)
+  username     String?   @db.VarChar(100)
+  is_active    Boolean   @default(true)
+  post_count   Int       @default(0)
+  last_used_at DateTime?
+  created_by   String    @db.Uuid
+  created_at   DateTime  @default(now())
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  channel      ChatChannel  @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@map("chat_incoming_webhooks")
+}
+
+model ChatBotIntegration {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String   @db.Uuid
+  name           String    @db.VarChar(200)
+  bot_type       BotType   @default(custom)
+  avatar_url     String?   @db.VarChar(500)
+  description    String?   @db.Text
+  command_prefix String?   @db.VarChar(20)
+  slash_commands Json?
+  is_active      Boolean   @default(true)
+  channels       String[]
+  created_by     String    @db.Uuid
+  created_at     DateTime  @default(now())
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@map("chat_bot_integrations")
+}
+
+model ChatCall {
+  id               String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id  String     @db.Uuid
+  channel_id       String?    @db.Uuid
+  initiator_id     String     @db.Uuid
+  call_type        CallType
+  status           CallStatus @default(ringing)
+  participants     Json
+  started_at       DateTime?
+  ended_at         DateTime?
+  duration_seconds Int?
+  recording_url    String?    @db.VarChar(500)
+  created_at       DateTime   @default(now())
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  channel      ChatChannel? @relation(fields: [channel_id], references: [id])
+
+  @@index([organization_id, status])
+  @@map("chat_calls")
+}

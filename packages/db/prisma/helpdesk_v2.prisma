@@ -1,0 +1,471 @@
+// =============================================================================
+// Help Desk v2 — New models and enums
+// Doc: 04_HELPDESK_v2.md
+// All models use Hd prefix. Original non-prefixed models (Ticket, SlaPolicy, etc.)
+// remain in schema.prisma and are separate.
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum HdTicketChannel {
+  email
+  web
+  chat
+  phone
+  api
+  social
+}
+
+enum HdTicketStatus {
+  new
+  open
+  pending
+  on_hold
+  resolved
+  closed
+}
+
+enum HdTicketPriority {
+  low
+  medium
+  high
+  urgent
+  critical
+}
+
+enum HdTicketType {
+  question
+  incident
+  problem
+  feature_request
+  task
+}
+
+enum HdSlaStatus {
+  active
+  breached
+  completed
+  paused
+}
+
+enum HdReplyType {
+  public
+  private
+  system
+}
+
+enum HdSentVia {
+  email
+  chat
+  api
+  manual
+}
+
+enum HdAutoAssign {
+  none
+  round_robin
+  least_active
+  load_balanced
+}
+
+enum HdTeamMemberRole {
+  agent
+  lead
+  supervisor
+}
+
+enum HdArticleStatus {
+  draft
+  published
+  archived
+}
+
+enum HdArticleVisibility {
+  internal
+  external
+  agents_only
+}
+
+enum HdEmailProvider {
+  gmail
+  outlook
+  smtp
+  imap
+}
+
+enum HdSatisfactionScale {
+  binary
+  three_point
+  five_point
+}
+
+enum HdTriggerEvent {
+  ticket_created
+  ticket_updated
+  ticket_assigned
+  sla_breached
+  reply_received
+  ticket_resolved
+  ticket_closed
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+model HdTicket {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String           @db.Uuid
+  ticket_number   String           @db.VarChar(50)
+  subject         String           @db.VarChar(500)
+  description     String?          @db.Text
+  status          HdTicketStatus   @default(new)
+  priority        HdTicketPriority @default(medium)
+  ticket_type     HdTicketType     @default(question)
+  channel         HdTicketChannel  @default(web)
+  category_id     String?          @db.Uuid
+  team_id         String?          @db.Uuid
+  assignee_id     String?          @db.Uuid
+  requester_name  String?          @db.VarChar(255)
+  requester_email String?          @db.VarChar(255)
+  requester_phone String?          @db.VarChar(50)
+  requester_id    String?          @db.Uuid
+  sla_policy_id   String?          @db.Uuid
+  sla_status      HdSlaStatus?
+  sla_due_at      DateTime?
+  first_response_at DateTime?
+  resolved_at     DateTime?
+  closed_at       DateTime?
+  reopen_count    Int              @default(0)
+  reply_count     Int              @default(0)
+  tags            String[]
+  custom_fields   Json?
+  source_metadata Json?
+  created_at      DateTime         @default(now())
+  updated_at      DateTime         @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  category     HdCategory?      @relation(fields: [category_id], references: [id])
+  team         HdTeam?          @relation(fields: [team_id], references: [id])
+  sla_policy   HdSlaPolicy?     @relation(fields: [sla_policy_id], references: [id])
+  replies      HdTicketReply[]
+  time_logs    HdTimeLog[]
+  surveys      HdSatisfactionSurvey[]
+
+  @@unique([organization_id, ticket_number])
+  @@index([organization_id])
+  @@index([assignee_id])
+  @@index([status])
+  @@index([category_id])
+  @@index([team_id])
+  @@map("hd_tickets")
+}
+
+model HdTicketReply {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ticket_id   String      @db.Uuid
+  author_id   String?     @db.Uuid
+  reply_type  HdReplyType @default(public)
+  sent_via    HdSentVia   @default(manual)
+  content     String      @db.Text
+  content_html String?    @db.Text
+  attachments Json?
+  email_message_id String? @db.VarChar(500)
+  created_at  DateTime    @default(now())
+  updated_at  DateTime    @updatedAt
+  deleted_at  DateTime?
+
+  ticket HdTicket @relation(fields: [ticket_id], references: [id], onDelete: Cascade)
+
+  @@index([ticket_id])
+  @@index([author_id])
+  @@map("hd_ticket_replies")
+}
+
+model HdSlaPolicy {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  name            String    @db.VarChar(255)
+  description     String?   @db.Text
+  first_response_hours  Decimal  @db.Decimal(6, 2)
+  resolution_hours      Decimal  @db.Decimal(6, 2)
+  business_hours_only   Boolean  @default(true)
+  business_hours_id     String?  @db.Uuid
+  priority_overrides    Json?
+  is_default      Boolean   @default(false)
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization  @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  tickets      HdTicket[]
+  business_hours HdBusinessHours? @relation(fields: [business_hours_id], references: [id])
+
+  @@index([organization_id])
+  @@map("hd_sla_policies")
+}
+
+model HdBusinessHours {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  name            String    @db.VarChar(255)
+  timezone        String    @db.VarChar(100)
+  schedule        Json
+  holidays        Json?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  sla_policies HdSlaPolicy[]
+
+  @@index([organization_id])
+  @@map("hd_business_hours")
+}
+
+model HdCategory {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  name            String    @db.VarChar(255)
+  description     String?   @db.Text
+  parent_id       String?   @db.Uuid
+  color           String?   @db.VarChar(7)
+  icon            String?   @db.VarChar(100)
+  position        Int       @default(0)
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  parent       HdCategory?  @relation("CategoryParent", fields: [parent_id], references: [id])
+  children     HdCategory[] @relation("CategoryParent")
+  tickets      HdTicket[]
+
+  @@index([organization_id])
+  @@index([parent_id])
+  @@map("hd_categories")
+}
+
+model HdTeam {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String       @db.Uuid
+  name            String       @db.VarChar(255)
+  description     String?      @db.Text
+  auto_assign     HdAutoAssign @default(none)
+  is_active       Boolean      @default(true)
+  created_at      DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization  @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  members      HdTeamMember[]
+  tickets      HdTicket[]
+
+  @@index([organization_id])
+  @@map("hd_teams")
+}
+
+model HdTeamMember {
+  id         String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  team_id    String           @db.Uuid
+  user_id    String           @db.Uuid
+  role       HdTeamMemberRole @default(agent)
+  joined_at  DateTime         @default(now())
+
+  team HdTeam @relation(fields: [team_id], references: [id], onDelete: Cascade)
+
+  @@unique([team_id, user_id])
+  @@index([team_id])
+  @@index([user_id])
+  @@map("hd_team_members")
+}
+
+model HdCannedResponse {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  name            String    @db.VarChar(255)
+  shortcut        String?   @db.VarChar(50)
+  content         String    @db.Text
+  tags            String[]
+  is_shared       Boolean   @default(true)
+  created_by      String    @db.Uuid
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@map("hd_canned_responses")
+}
+
+model HdRoutingRule {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  name            String    @db.VarChar(255)
+  conditions      Json
+  actions         Json
+  position        Int       @default(0)
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@map("hd_routing_rules")
+}
+
+model HdTimeLog {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ticket_id   String   @db.Uuid
+  agent_id    String   @db.Uuid
+  minutes     Int
+  description String?  @db.Text
+  logged_at   DateTime @default(now())
+  created_at  DateTime @default(now())
+
+  ticket HdTicket @relation(fields: [ticket_id], references: [id], onDelete: Cascade)
+
+  @@index([ticket_id])
+  @@index([agent_id])
+  @@map("hd_time_logs")
+}
+
+model HdArticle {
+  id              String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String              @db.Uuid
+  category_id     String?             @db.Uuid
+  title           String              @db.VarChar(500)
+  slug            String              @db.VarChar(255)
+  content         String              @db.Text
+  content_html    String?             @db.Text
+  status          HdArticleStatus     @default(draft)
+  visibility      HdArticleVisibility @default(external)
+  author_id       String              @db.Uuid
+  views_count     Int                 @default(0)
+  helpful_count   Int                 @default(0)
+  not_helpful_count Int               @default(0)
+  tags            String[]
+  published_at    DateTime?
+  created_at      DateTime            @default(now())
+  updated_at      DateTime            @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization          @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  versions     HdArticleVersion[]
+  feedback     HdArticleFeedback[]
+
+  @@unique([organization_id, slug])
+  @@index([organization_id])
+  @@index([category_id])
+  @@map("hd_articles")
+}
+
+model HdArticleVersion {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  article_id     String   @db.Uuid
+  version_number Int
+  title          String   @db.VarChar(500)
+  content        String   @db.Text
+  changed_by     String   @db.Uuid
+  created_at     DateTime @default(now())
+
+  article HdArticle @relation(fields: [article_id], references: [id], onDelete: Cascade)
+
+  @@unique([article_id, version_number])
+  @@index([article_id])
+  @@map("hd_article_versions")
+}
+
+model HdArticleFeedback {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  article_id String   @db.Uuid
+  user_id    String?  @db.Uuid
+  is_helpful Boolean
+  comment    String?  @db.Text
+  created_at DateTime @default(now())
+
+  article HdArticle @relation(fields: [article_id], references: [id], onDelete: Cascade)
+
+  @@index([article_id])
+  @@map("hd_article_feedback")
+}
+
+model HdEmailInbox {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String          @db.Uuid
+  name            String          @db.VarChar(255)
+  email_address   String          @db.VarChar(255)
+  provider        HdEmailProvider
+  credentials_enc Json
+  is_active       Boolean         @default(true)
+  auto_reply      Boolean         @default(false)
+  auto_reply_template String?     @db.Text
+  last_synced_at  DateTime?
+  created_at      DateTime        @default(now())
+  updated_at      DateTime        @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, email_address])
+  @@index([organization_id])
+  @@map("hd_email_inboxes")
+}
+
+model HdSatisfactionSurvey {
+  id          String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ticket_id   String              @db.Uuid
+  requester_id String?            @db.Uuid
+  scale       HdSatisfactionScale @default(five_point)
+  rating      Int
+  comment     String?             @db.Text
+  submitted_at DateTime           @default(now())
+  created_at  DateTime            @default(now())
+
+  ticket HdTicket @relation(fields: [ticket_id], references: [id], onDelete: Cascade)
+
+  @@unique([ticket_id])
+  @@index([ticket_id])
+  @@map("hd_satisfaction_surveys")
+}
+
+model HdAutomationRule {
+  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String         @db.Uuid
+  name            String         @db.VarChar(255)
+  trigger_event   HdTriggerEvent
+  conditions      Json
+  actions         Json
+  position        Int            @default(0)
+  is_active       Boolean        @default(true)
+  runs_count      Int            @default(0)
+  last_run_at     DateTime?
+  created_at      DateTime       @default(now())
+  updated_at      DateTime       @updatedAt
+  deleted_at      DateTime?
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@map("hd_automation_rules")
+}
+
+model HdRoundRobinState {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String   @db.Uuid
+  team_id         String   @db.Uuid
+  current_index   Int      @default(0)
+  updated_at      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([team_id])
+  @@index([organization_id])
+  @@map("hd_round_robin_states")
+}

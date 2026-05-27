@@ -389,7 +389,7 @@ export default function WorkflowsPage() {
                     className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors border border-border rounded-lg px-2.5 py-1.5"
                   >
                     <Activity className="w-3.5 h-3.5" />
-                    Runs
+                    Runs ({wf._count.runs})
                   </Link>
                   <button
                     onClick={() => setDeletingId(wf.id)}

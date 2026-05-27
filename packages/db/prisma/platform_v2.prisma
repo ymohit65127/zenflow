@@ -1,0 +1,378 @@
+// =============================================================================
+// Platform Features v2 — New models and enums
+// Doc: 12_PLATFORM_FEATURES.md
+// Covers: Custom Fields v2, RBAC v2, Audit Log v2, Notifications v2,
+//         API Platform, SSO/MFA
+// Existing: CustomField, AuditLog, Notification, ApiKey, Webhook, Role,
+//           RolePermission, UserRole, Session (in schema.prisma) — these are
+//           the v1 versions. New v2 models added here with different names/tables.
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum EntityType {
+  crm_contact
+  crm_deal
+  crm_account
+  project
+  task
+  hr_employee
+  ticket
+  invoice
+  product
+  form_submission
+}
+
+enum FieldVisibility {
+  all
+  admin_only
+  owner_only
+}
+
+enum PermAction {
+  view
+  create
+  edit
+  delete
+  export
+  import
+  approve
+  admin
+}
+
+enum ResourceScope {
+  all
+  own
+  team
+}
+
+enum ActorType {
+  user
+  api_token
+  system
+  webhook
+}
+
+enum CreatedByType {
+  user
+  system
+  workflow
+  api
+}
+
+enum SsoProvider {
+  saml
+  oidc
+  google_workspace
+  microsoft
+  okta
+  auth0
+}
+
+enum MfaMethod {
+  totp
+  sms
+  email
+  webauthn
+}
+
+enum DeliveryStatus2 {
+  pending
+  delivered
+  failed
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+model CustomFieldDefinition {
+  id                   String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id      String          @db.Uuid
+  entity_type          EntityType
+  name                 String          @db.VarChar(200)
+  field_key            String          @db.VarChar(100)
+  label                String          @db.VarChar(200)
+  field_type           String          @db.VarChar(50)
+  options              Json?
+  formula_expression   String?         @db.Text
+  relation_entity_type String?         @db.VarChar(50)
+  is_required          Boolean         @default(false)
+  default_value        String?         @db.Text
+  min_value            Decimal?        @db.Decimal(15, 4)
+  max_value            Decimal?        @db.Decimal(15, 4)
+  max_length           Int?
+  position             Int             @default(0)
+  show_in_list         Boolean         @default(true)
+  show_in_form         Boolean         @default(true)
+  is_filterable        Boolean         @default(true)
+  is_searchable        Boolean         @default(false)
+  visibility           FieldVisibility @default(all)
+  created_by           String          @db.Uuid
+  is_active            Boolean         @default(true)
+  created_at           DateTime        @default(now())
+  updated_at           DateTime        @updatedAt
+  deleted_at           DateTime?
+
+  organization Organization       @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  values       CustomFieldValue[]
+
+  @@unique([organization_id, entity_type, field_key])
+  @@index([organization_id, entity_type, is_active])
+  @@map("custom_field_definitions")
+}
+
+model CustomFieldValue {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entity_type   String    @db.VarChar(50)
+  entity_id     String    @db.VarChar(36)
+  field_id      String    @db.Uuid
+  value_text    String?   @db.Text
+  value_number  Decimal?  @db.Decimal(15, 4)
+  value_date    DateTime?
+  value_boolean Boolean?
+  value_json    Json?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  field CustomFieldDefinition @relation(fields: [field_id], references: [id], onDelete: Cascade)
+
+  @@unique([entity_id, field_id])
+  @@index([entity_type, entity_id])
+  @@map("custom_field_values")
+}
+
+model RoleV2 {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String @db.Uuid
+  name        String    @db.VarChar(100)
+  description String?   @db.Text
+  is_system   Boolean   @default(false)
+  color       String?   @db.VarChar(7)
+  user_count  Int       @default(0)
+  created_at  DateTime  @default(now())
+  deleted_at  DateTime?
+
+  organization Organization      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  permissions  RolePermissionV2[]
+  members      UserRoleV2[]
+
+  @@unique([organization_id, name])
+  @@index([organization_id])
+  @@map("roles_v2")
+}
+
+model RolePermissionV2 {
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  role_id           String        @db.Uuid
+  module            String        @db.VarChar(50)
+  action            PermAction
+  resource_scope    ResourceScope @default(all)
+  field_restrictions Json?
+  created_at        DateTime      @default(now())
+
+  role RoleV2 @relation(fields: [role_id], references: [id], onDelete: Cascade)
+
+  @@unique([role_id, module, action])
+  @@map("role_permissions_v2")
+}
+
+model UserRoleV2 {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String    @db.Uuid
+  role_id     String    @db.Uuid
+  organization_id String @db.Uuid
+  assigned_by String?   @db.Uuid
+  created_at  DateTime  @default(now())
+
+  role RoleV2 @relation(fields: [role_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, role_id])
+  @@index([user_id, organization_id])
+  @@map("user_roles_v2")
+}
+
+model AuditLogV2 {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String  @db.Uuid
+  actor_id     String    @db.VarChar(50)
+  actor_type   ActorType
+  actor_name   String    @db.VarChar(200)
+  action       String    @db.VarChar(100)
+  entity_type  String    @db.VarChar(50)
+  entity_id    String    @db.VarChar(36)
+  entity_name  String    @db.VarChar(500)
+  old_data     Json?
+  new_data     Json?
+  ip_address   String?   @db.VarChar(45)
+  user_agent   String?   @db.Text
+  session_id   String?   @db.VarChar(36)
+  api_token_id String?   @db.VarChar(36)
+  metadata     Json?
+  created_at   DateTime  @default(now())
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, actor_id, created_at])
+  @@index([entity_type, entity_id])
+  @@index([organization_id, action, created_at])
+  @@index([organization_id, created_at])
+  @@map("audit_logs_v2")
+}
+
+model NotificationV2 {
+  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id            String        @db.Uuid
+  organization_id    String        @db.Uuid
+  notification_type  String        @db.VarChar(100)
+  title              String        @db.VarChar(500)
+  body               String?       @db.Text
+  entity_type        String?       @db.VarChar(50)
+  entity_id          String?       @db.VarChar(36)
+  action_url         String?       @db.VarChar(500)
+  is_read            Boolean       @default(false)
+  read_at            DateTime?
+  delivered_channels String[]
+  created_by_type    CreatedByType @default(system)
+  created_by_id      String?       @db.VarChar(36)
+  created_at         DateTime      @default(now())
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, is_read, created_at])
+  @@index([user_id, notification_type])
+  @@map("notifications_v2")
+}
+
+model NotificationPreference {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id              String    @db.Uuid
+  event_type           String    @db.VarChar(100)
+  channels             Json
+  schedule_quiet_start String?   @db.VarChar(5)
+  schedule_quiet_end   String?   @db.VarChar(5)
+  schedule_timezone    String?   @db.VarChar(100)
+  created_at           DateTime  @default(now())
+  updated_at           DateTime  @updatedAt
+
+  @@unique([user_id, event_type])
+  @@map("notification_preferences")
+}
+
+model ApiTokenV2 {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id     String    @db.Uuid
+  name                String    @db.VarChar(200)
+  token_hash          String    @unique @db.Char(64)
+  token_prefix        String    @db.VarChar(12)
+  created_by          String    @db.Uuid
+  scopes              String[]
+  rate_limit_per_hour Int       @default(1000)
+  last_used_at        DateTime?
+  last_used_ip        String?   @db.VarChar(45)
+  request_count       Int       @default(0)
+  expires_at          DateTime?
+  revoked_at          DateTime?
+  created_at          DateTime  @default(now())
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([token_hash])
+  @@index([organization_id, revoked_at])
+  @@map("api_tokens_v2")
+}
+
+model WebhookSubscription {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id   String    @db.Uuid
+  name              String    @db.VarChar(200)
+  url               String    @db.VarChar(500)
+  secret            String    @db.VarChar(120)
+  events            String[]
+  is_active         Boolean   @default(true)
+  last_triggered_at DateTime?
+  failure_count     Int       @default(0)
+  created_by        String    @db.Uuid
+  created_at        DateTime  @default(now())
+
+  organization Organization      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  deliveries   WebhookDelivery[]
+
+  @@index([organization_id, is_active])
+  @@map("webhook_subscriptions")
+}
+
+model WebhookDelivery {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  subscription_id String          @db.Uuid
+  event_type      String          @db.VarChar(100)
+  payload         String          @db.Text
+  response_status Int?
+  response_body   String?         @db.Text
+  attempts        Int             @default(0)
+  max_attempts    Int             @default(3)
+  next_retry_at   DateTime?
+  status          DeliveryStatus2 @default(pending)
+  delivered_at    DateTime?
+  created_at      DateTime        @default(now())
+
+  subscription WebhookSubscription @relation(fields: [subscription_id], references: [id], onDelete: Cascade)
+
+  @@index([subscription_id, status])
+  @@index([status, next_retry_at])
+  @@map("webhook_deliveries")
+}
+
+model SsoConfig {
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String   @unique @db.Uuid
+  provider     SsoProvider
+  config       Json
+  is_enabled   Boolean     @default(false)
+  require_sso  Boolean     @default(false)
+  domain_hint  String[]
+  created_by   String      @db.Uuid
+  created_at   DateTime    @default(now())
+  updated_at   DateTime    @updatedAt
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@map("sso_configs")
+}
+
+model MfaConfig {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id          String    @unique @db.Uuid
+  method           MfaMethod
+  secret_enc       String?   @db.VarChar(500)
+  backup_codes_enc String?   @db.Text
+  phone_number     String?   @db.VarChar(20)
+  is_enabled       Boolean   @default(false)
+  enabled_at       DateTime?
+  last_used_at     DateTime?
+  created_at       DateTime  @default(now())
+
+  @@map("mfa_configs")
+}
+
+model SessionV2 {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id          String    @db.Uuid
+  session_token    String    @unique @db.Char(64)
+  ip_address       String?   @db.VarChar(45)
+  user_agent       String?   @db.Text
+  device_name      String?   @db.VarChar(255)
+  location_country String?   @db.VarChar(100)
+  location_city    String?   @db.VarChar(100)
+  is_current       Boolean   @default(false)
+  last_active_at   DateTime  @default(now())
+  expires_at       DateTime
+  revoked_at       DateTime?
+  created_at       DateTime  @default(now())
+
+  @@index([user_id, revoked_at])
+  @@index([session_token])
+  @@map("sessions_v2")
+}

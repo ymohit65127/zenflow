@@ -1,6 +1,14 @@
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { reactionsRouter } from './chat/reactions';
+import { threadsRouter } from './chat/threads';
+import { bookmarksRouter } from './chat/bookmarks';
+import { userStatusRouter } from './chat/userStatus';
+import { scheduledMessagesRouter } from './chat/scheduledMessages';
+import { incomingWebhooksRouter } from './chat/incomingWebhooks';
+import { searchRouter } from './chat/search';
+import { messagesV2Router } from './chat/messages_v2';
 
 // ─── Channels Sub-Router ─────────────────────────────────────────────────────
 
@@ -668,4 +676,13 @@ export const chatRouter = createTRPCRouter({
   messages: messagesRouter,
   members: membersRouter,
   unread: unreadRouter,
+  // ── Chat v2 sub-routers ───────────────────────────────────────────────────
+  reactions: reactionsRouter,
+  threads: threadsRouter,
+  bookmarks: bookmarksRouter,
+  userStatus: userStatusRouter,
+  scheduled: scheduledMessagesRouter,
+  webhooks: incomingWebhooksRouter,
+  search: searchRouter,
+  messagesV2: messagesV2Router,
 });

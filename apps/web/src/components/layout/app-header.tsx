@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Search, Bell, Sun, Moon, ChevronDown, LogOut, User, Settings, Command } from "lucide-react";
+import { Search, Sun, Moon, ChevronDown, LogOut, User, Settings, Command } from "lucide-react";
 import { useTheme } from "next-themes";
 import { signOut } from "next-auth/react";
 import type { Session } from "next-auth";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 
 interface AppHeaderProps {
   user: Session["user"];
@@ -33,10 +34,7 @@ export function AppHeader({ user }: AppHeaderProps) {
 
       <div className="flex items-center gap-2">
         {/* Notifications */}
-        <button className="relative w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
-          <Bell className="w-4.5 h-4.5" style={{ width: "1.125rem", height: "1.125rem" }} />
-          <div className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-brand-500" />
-        </button>
+        <NotificationBell />
 
         {/* Theme toggle */}
         <button

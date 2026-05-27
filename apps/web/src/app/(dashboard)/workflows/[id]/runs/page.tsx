@@ -16,6 +16,65 @@ import {
   ChevronRight,
 } from "lucide-react";
 
+// ── v2 Step Logs Panel ─────────────────────────────────────────────────────────
+
+function RunStepLogs({ runId }: { runId: string }) {
+  const { data: logs, isLoading } = api.workflows.runsV2.logs.useQuery({ runId });
+  const [expandedLog, setExpandedLog] = useState<string | null>(null);
+
+  const statusColors: Record<string, string> = {
+    completed: 'bg-green-100 text-green-700',
+    failed: 'bg-red-100 text-red-700',
+    running: 'bg-yellow-100 text-yellow-700',
+    pending: 'bg-gray-100 text-gray-500',
+    skipped: 'bg-gray-50 text-gray-400',
+  };
+
+  if (isLoading) return <div className="p-4 text-xs text-muted-foreground">Loading step logs...</div>;
+  if (!logs?.length) return <div className="p-4 text-xs text-muted-foreground">No step logs available.</div>;
+
+  return (
+    <div className="space-y-1 mt-2">
+      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Step Logs</p>
+      {logs.map((log) => (
+        <div key={log.id} className="border border-border rounded-lg overflow-hidden">
+          <button
+            onClick={() => setExpandedLog(expandedLog === log.id ? null : log.id)}
+            className="w-full flex items-center gap-3 px-3 py-2 hover:bg-muted/50 transition-colors text-left"
+          >
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${statusColors[log.status] ?? 'bg-gray-100'}`}>
+              {log.status}
+            </span>
+            <span className="text-sm font-medium flex-1 truncate">{log.node_name}</span>
+            <span className="text-xs text-muted-foreground flex-shrink-0">{log.node_type}</span>
+            {log.duration_ms != null && (
+              <span className="text-xs text-muted-foreground flex-shrink-0">{log.duration_ms}ms</span>
+            )}
+            {expandedLog === log.id ? <ChevronDown className="w-3.5 h-3.5 flex-shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 flex-shrink-0" />}
+          </button>
+          {expandedLog === log.id && (
+            <div className="px-3 pb-3 grid grid-cols-2 gap-3 bg-muted/20 border-t border-border">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1 mt-2">Input</p>
+                <pre className="text-xs bg-muted rounded p-2 overflow-auto max-h-32 font-mono">{JSON.stringify(log.input_data, null, 2)}</pre>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1 mt-2">Output</p>
+                <pre className="text-xs bg-muted rounded p-2 overflow-auto max-h-32 font-mono">{JSON.stringify(log.output_data, null, 2)}</pre>
+              </div>
+              {log.error_message && (
+                <div className="col-span-2">
+                  <p className="text-xs text-red-500 bg-red-50 rounded p-2">{log.error_message}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 type RunStatus = "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
 
 const STATUS_META: Record<
@@ -215,28 +274,32 @@ export default function WorkflowRunsPage() {
                   </div>
 
                   {isExpanded && (
-                    <div className="px-6 pb-5 grid grid-cols-1 md:grid-cols-2 gap-4 bg-muted/20">
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
-                          Trigger Data
-                        </p>
-                        <pre className="bg-muted rounded-xl p-3 text-xs overflow-auto max-h-40 font-mono">
-                          {JSON.stringify(run.trigger_data, null, 2) ?? "{}"}
-                        </pre>
-                      </div>
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
-                          Result Data
-                        </p>
-                        <pre className="bg-muted rounded-xl p-3 text-xs overflow-auto max-h-40 font-mono">
-                          {JSON.stringify(run.result_data, null, 2) ?? "{}"}
-                        </pre>
-                        {run.error && (
-                          <p className="mt-2 text-xs text-red-500 bg-red-500/10 rounded-lg p-2">
-                            {run.error}
+                    <div className="px-6 pb-5 bg-muted/20">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                          <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
+                            Trigger Data
                           </p>
-                        )}
+                          <pre className="bg-muted rounded-xl p-3 text-xs overflow-auto max-h-40 font-mono">
+                            {JSON.stringify(run.trigger_data, null, 2) ?? "{}"}
+                          </pre>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
+                            Result Data
+                          </p>
+                          <pre className="bg-muted rounded-xl p-3 text-xs overflow-auto max-h-40 font-mono">
+                            {JSON.stringify(run.result_data, null, 2) ?? "{}"}
+                          </pre>
+                          {run.error && (
+                            <p className="mt-2 text-xs text-red-500 bg-red-500/10 rounded-lg p-2">
+                              {run.error}
+                            </p>
+                          )}
+                        </div>
                       </div>
+                      {/* v2: Per-step logs */}
+                      <RunStepLogs runId={run.id} />
                     </div>
                   )}
                 </div>

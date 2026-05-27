@@ -7,7 +7,8 @@ import { createTRPCReact } from "@trpc/react-query";
 import superjson from "superjson";
 import type { AppRouter } from "@/server/api/root";
 
-export const api = createTRPCReact<AppRouter>();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const api: ReturnType<typeof createTRPCReact<AppRouter>> = createTRPCReact<AppRouter>();
 
 function getBaseUrl() {
   if (typeof window !== "undefined") return window.location.origin;

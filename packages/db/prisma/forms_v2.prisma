@@ -1,0 +1,344 @@
+// =============================================================================
+// Forms v2 — New models and enums
+// Doc: 07_FORMS_v2.md
+// IMPORTANT: The existing Form, FormField, FormSubmission models in schema.prisma
+// are being superseded. New models here use the same table names to replace them.
+// The original models in schema.prisma must be removed or the forms_v2 tables
+// will conflict — handled at push time with --accept-data-loss.
+//
+// FormOptionSource, FormApprovalStep, FormApprovalLog, FormWebhookQueue,
+// FormApiToken, FormAuditLog, FormVersion are ALL NEW models.
+// Form and FormSubmission are redefined with extended columns.
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum FormStatusV2 {
+  draft
+  published
+  archived
+}
+
+enum FormAudience {
+  all
+  employee
+  student
+  specific_roles
+}
+
+enum SuccessAction {
+  message
+  redirect
+}
+
+enum QueryMode {
+  structured
+  raw
+}
+
+enum SubmitterType {
+  admin
+  employee
+  student
+  public
+  user
+}
+
+enum ApprovalStatus {
+  pending
+  approved
+  rejected
+}
+
+enum ApproverType {
+  user
+  role
+  manager
+}
+
+enum ApprovalAction {
+  approved
+  rejected
+  reassigned
+}
+
+enum WebhookStatus {
+  pending
+  delivered
+  failed
+}
+
+enum TokenScope {
+  read
+  read_approve
+}
+
+enum FormAuditAction {
+  create_form
+  edit_form
+  delete_form
+  publish_form
+  archive_form
+  submit
+  edit_submission
+  delete_submission
+  approve
+  reject
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+model FormV2 {
+  id                          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id             String       @db.Uuid
+  created_by                  String       @db.Uuid
+
+  title                       String       @db.VarChar(255)
+  slug                        String       @unique @db.VarChar(64)
+  description                 String?      @db.Text
+
+  fields_info                 Json
+
+  status                      FormStatusV2 @default(draft)
+  version                     Int          @default(1)
+  submissions_count           Int          @default(0)
+  deleted_at                  DateTime?
+
+  available_for               FormAudience @default(all)
+  allowed_role_ids            String[]
+  auth_required               Boolean      @default(true)
+  password                    String?      @db.VarChar(255)
+
+  allow_multiple_submissions  Boolean      @default(false)
+  enable_window               Boolean      @default(false)
+  window_start                DateTime?
+  window_end                  DateTime?
+  enable_max_submissions      Boolean      @default(false)
+  max_submissions             Int?
+
+  can_edit                    Boolean      @default(false)
+  can_delete                  Boolean      @default(false)
+  edit_window_enabled         Boolean      @default(false)
+  edit_window_start           DateTime?
+  edit_window_end             DateTime?
+
+  enable_approval             Boolean      @default(false)
+
+  enable_email_notification   Boolean      @default(false)
+  enable_sms_notification     Boolean      @default(false)
+  notify_email_subject        String?      @db.VarChar(255)
+  notify_email_body           String?      @db.Text
+  notify_sms_template         String?      @db.VarChar(500)
+  notify_admin_emails         String[]
+
+  success_action              SuccessAction @default(message)
+  success_message             String?      @db.Text
+  redirect_url                String?      @db.VarChar(500)
+
+  custom_css                  String?      @db.Text
+
+  public_rate_limit           Int?
+
+  recaptcha_site_key          String?      @db.VarChar(120)
+  recaptcha_secret_key        String?      @db.VarChar(120)
+  recaptcha_min_score         Decimal?     @db.Decimal(3, 2)
+
+  webhook_url                 String?      @db.VarChar(500)
+  webhook_secret              String?      @db.VarChar(120)
+
+  qr_code_path                String?      @db.VarChar(500)
+
+  created_at                  DateTime     @default(now())
+  updated_at                  DateTime     @updatedAt
+
+  organization    Organization            @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  submissions     FormV2Submission[]
+  approval_steps  FormApprovalStep[]
+  api_tokens      FormApiToken[]
+  webhook_queue   FormWebhookQueue[]
+  audit_logs      FormAuditLog[]
+  versions        FormVersion[]
+
+  @@index([organization_id, status, deleted_at])
+  @@map("forms_v2")
+}
+
+model FormOptionSource {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String    @db.Uuid
+  created_by      String    @db.Uuid
+
+  name            String    @db.VarChar(100)
+  description     String?   @db.Text
+
+  query_mode      QueryMode @default(structured)
+  source_table    String?   @db.VarChar(100)
+  source_column   String?   @db.VarChar(100)
+  value_column    String?   @db.VarChar(100)
+  where_clause    String?   @db.Text
+  order_by        String?   @db.VarChar(150)
+  raw_sql         String?   @db.Text
+  apply_distinct  Boolean   @default(true)
+  row_limit       Int?
+
+  label_template  String?   @db.Text
+
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, name])
+  @@map("form_option_sources")
+}
+
+model FormV2Submission {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  form_id          String         @db.Uuid
+
+  reference_number String         @unique @db.VarChar(50)
+
+  submitter_id     String?        @db.VarChar(50)
+  submitter_type   SubmitterType?
+  submitter_ip     String         @db.VarChar(45)
+  user_agent       String?        @db.Text
+
+  data             Json
+
+  approval_status  ApprovalStatus?
+  approval_remarks String?        @db.Text
+  approved_by      String?        @db.VarChar(36)
+  approved_at      DateTime?
+
+  is_edited        Boolean        @default(false)
+  last_edited_at   DateTime?
+  last_edited_by   String?        @db.VarChar(36)
+
+  financial_year   Int?
+  is_trash         Boolean        @default(false)
+
+  created_at       DateTime       @default(now())
+  updated_at       DateTime       @updatedAt
+
+  form          FormV2            @relation(fields: [form_id], references: [id], onDelete: Cascade)
+  approval_logs FormApprovalLog[]
+  webhook_queue FormWebhookQueue[]
+  audit_logs    FormAuditLog[]
+
+  @@index([form_id, is_trash, created_at])
+  @@index([submitter_id, form_id])
+  @@index([approval_status, form_id])
+  @@map("form_v2_submissions")
+}
+
+model FormApprovalStep {
+  id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  form_id            String       @db.Uuid
+  position           Int
+  approver_type      ApproverType
+  approver_id        String?      @db.VarChar(36)
+  approver_role      String?      @db.VarChar(50)
+  notification_email String?      @db.VarChar(255)
+  created_at         DateTime     @default(now())
+
+  form FormV2 @relation(fields: [form_id], references: [id], onDelete: Cascade)
+
+  @@index([form_id, position])
+  @@map("form_approval_steps")
+}
+
+model FormApprovalLog {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  submission_id String         @db.Uuid
+  step_position Int
+  approver_id   String         @db.VarChar(36)
+  action        ApprovalAction
+  remarks       String?        @db.Text
+  created_at    DateTime       @default(now())
+
+  submission FormV2Submission @relation(fields: [submission_id], references: [id], onDelete: Cascade)
+
+  @@index([submission_id])
+  @@map("form_approval_logs")
+}
+
+model FormWebhookQueue {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  form_id       String        @db.Uuid
+  submission_id String        @db.Uuid
+  webhook_url   String        @db.VarChar(500)
+  payload       String        @db.Text
+  attempts      Int           @default(0)
+  max_attempts  Int           @default(3)
+  next_at       DateTime?
+  status        WebhookStatus @default(pending)
+  last_error    String?       @db.Text
+  created_at    DateTime      @default(now())
+  updated_at    DateTime      @updatedAt
+
+  form       FormV2           @relation(fields: [form_id], references: [id], onDelete: Cascade)
+  submission FormV2Submission @relation(fields: [submission_id], references: [id], onDelete: Cascade)
+
+  @@index([status, next_at])
+  @@map("form_webhook_queue")
+}
+
+model FormApiToken {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  form_id      String     @db.Uuid
+  created_by   String     @db.Uuid
+  label        String     @db.VarChar(100)
+  token_hash   String     @unique @db.Char(64)
+  token_prefix String     @db.VarChar(8)
+  scope        TokenScope @default(read)
+  last_used_at DateTime?
+  expires_at   DateTime?
+  revoked_at   DateTime?
+  created_at   DateTime   @default(now())
+
+  form FormV2 @relation(fields: [form_id], references: [id], onDelete: Cascade)
+
+  @@index([token_hash])
+  @@map("form_api_tokens")
+}
+
+model FormAuditLog {
+  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  form_id       String          @db.Uuid
+  submission_id String?         @db.Uuid
+  action        FormAuditAction
+  actor_id      String          @db.VarChar(50)
+  actor_type    String          @db.VarChar(20)
+  old_data      Json?
+  new_data      Json
+  ip_address    String?         @db.VarChar(45)
+  user_agent    String?         @db.VarChar(255)
+  created_at    DateTime        @default(now())
+
+  form       FormV2            @relation(fields: [form_id], references: [id], onDelete: Cascade)
+  submission FormV2Submission? @relation(fields: [submission_id], references: [id])
+
+  @@index([form_id, action, created_at])
+  @@map("form_audit_logs")
+}
+
+model FormVersion {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  form_id        String   @db.Uuid
+  version_number Int
+  fields_info    Json
+  changed_by     String   @db.VarChar(36)
+  change_note    String?  @db.VarChar(255)
+  created_at     DateTime @default(now())
+
+  form FormV2 @relation(fields: [form_id], references: [id], onDelete: Cascade)
+
+  @@unique([form_id, version_number])
+  @@map("form_versions")
+}

@@ -1,6 +1,17 @@
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { phasesRouter } from './projects/phases';
+import { milestonesRouter } from './projects/milestones';
+import { taskStatusesRouter } from './projects/taskStatuses';
+import { taskDepsRouter } from './projects/taskDeps';
+import { timeLogsRouter } from './projects/timeLogs';
+import { checklistsRouter } from './projects/checklists';
+import { templatesRouter } from './projects/templates';
+import { risksRouter } from './projects/risks';
+import { budgetRouter } from './projects/budget';
+import { ganttRouter } from './projects/gantt';
+import { sprintsV2Router } from './projects/sprints_v2';
 
 // ─── Tasks Sub-Router ────────────────────────────────────────────────────────
 
@@ -690,4 +701,16 @@ export const projectsRouter = createTRPCRouter({
   tasks: tasksRouter,
   sprints: sprintsRouter,
   taskLists: taskListsRouter,
+  // v2 sub-routers
+  phases: phasesRouter,
+  milestones: milestonesRouter,
+  taskStatuses: taskStatusesRouter,
+  taskDeps: taskDepsRouter,
+  timeLogs: timeLogsRouter,
+  checklists: checklistsRouter,
+  templates: templatesRouter,
+  risks: risksRouter,
+  budget: budgetRouter,
+  gantt: ganttRouter,
+  sprintsV2: sprintsV2Router,
 });
