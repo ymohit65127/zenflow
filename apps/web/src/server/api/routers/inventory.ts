@@ -329,7 +329,7 @@ const warehousesRouter = createTRPCRouter({
           organization_id: orgId,
           name: input.name,
           code: input.code,
-          address: input.address ?? undefined,
+          address: input.address ?? null,
           is_active: input.is_active,
         },
       });
