@@ -432,7 +432,9 @@ export function FormBuilderClient({ formId }: { formId: string }) {
       const next = [...prev];
       const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
       if (swapIdx < 0 || swapIdx >= next.length) return prev;
-      [next[idx]!, next[swapIdx]!] = [next[swapIdx]!, next[idx]!];
+      const tmp = next[idx]!;
+      next[idx] = next[swapIdx]!;
+      next[swapIdx] = tmp;
       return next.map((f, i) => ({ ...f, sort_order: i }));
     });
     setSavedStatus('unsaved');
