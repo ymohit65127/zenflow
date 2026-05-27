@@ -337,7 +337,7 @@ const leaveRouter = createTRPCRouter({
       return { items, total, page: input.page, limit: input.limit, totalPages: Math.ceil(total / input.limit) };
     }),
 
-  apply: protectedProcedure
+  submit: protectedProcedure
     .input(
       z.object({
         employee_id: z.string(),

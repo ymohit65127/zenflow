@@ -38,7 +38,7 @@ function ApplyLeaveDialog({
 
   const utils = api.useUtils();
 
-  const applyMutation = api.hr.leave.apply.useMutation({
+  const applyMutation = api.hr.leave.submit.useMutation({
     onSuccess: () => {
       toast.success('Leave request submitted');
       void utils.hr.leave.requests.invalidate();
