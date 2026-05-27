@@ -106,12 +106,12 @@ export default function OrganizationSettingsPage() {
             </div>
             <div>
               <p className="font-medium text-sm">{org?.name}</p>
-              <p className="text-xs text-muted-foreground mb-2">
+              <div className="text-xs text-muted-foreground mb-2">
                 Plan:{" "}
                 <Badge variant="default" className="ml-1 text-xs">
                   {org?.plan}
                 </Badge>
-              </p>
+              </div>
               <Button
                 size="sm"
                 variant="outline"

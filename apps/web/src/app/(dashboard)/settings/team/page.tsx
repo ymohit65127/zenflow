@@ -49,10 +49,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getInitials, generateAvatarColor, formatDate, timeAgo } from "@/lib/utils";
-import { useSession } from "next-auth/react";
 
 export default function TeamSettingsPage() {
-  const { data: session } = useSession();
   const utils = api.useUtils();
 
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
@@ -61,6 +59,7 @@ export default function TeamSettingsPage() {
 
   const [removeDialogUserId, setRemoveDialogUserId] = useState<string | null>(null);
 
+  const { data: currentUser } = api.settings.profile.get.useQuery();
   const { data: members, isLoading } = api.settings.team.list.useQuery();
   const { data: invitations } = api.settings.team.listInvitations.useQuery();
   const { data: roles } = api.settings.team.listRoles.useQuery();
@@ -200,7 +199,7 @@ export default function TeamSettingsPage() {
               const name = member.name ?? member.email;
               const color = generateAvatarColor(name);
               const roleName = member.user_roles[0]?.role?.name ?? "Member";
-              const isCurrentUser = member.id === (session?.user?.id as string);
+              const isCurrentUser = member.id === currentUser?.id;
               return (
                 <TableRow key={member.id}>
                   <TableCell>

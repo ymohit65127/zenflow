@@ -108,25 +108,28 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
         <nav className="flex-1 overflow-y-auto py-2 space-y-1 scrollbar-hide">
           {/* ── Channels ── */}
           <div>
-            <button
-              onClick={() => setChannelsCollapsed((v) => !v)}
-              className="w-full flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors group"
-            >
-              {channelsCollapsed ? (
-                <ChevronRight className="w-3 h-3" />
-              ) : (
-                <ChevronDown className="w-3 h-3" />
-              )}
-              <span className="flex-1 text-left">Channels</span>
+            <div className="flex items-center w-full px-3 py-1.5 group">
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); setShowCreate(true); }}
+                onClick={() => setChannelsCollapsed((v) => !v)}
+                className="flex-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {channelsCollapsed ? (
+                  <ChevronRight className="w-3 h-3" />
+                ) : (
+                  <ChevronDown className="w-3 h-3" />
+                )}
+                <span className="text-left">Channels</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCreate(true)}
                 className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded hover:bg-muted-foreground/20 transition-all"
                 title="Create channel"
               >
                 <Plus className="w-3.5 h-3.5" />
               </button>
-            </button>
+            </div>
 
             {!channelsCollapsed && (
               <ul className="mt-0.5 space-y-0.5 px-2">
@@ -168,25 +171,28 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
 
           {/* ── Direct Messages ── */}
           <div className="mt-2">
-            <button
-              onClick={() => setDmsCollapsed((v) => !v)}
-              className="w-full flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors group"
-            >
-              {dmsCollapsed ? (
-                <ChevronRight className="w-3 h-3" />
-              ) : (
-                <ChevronDown className="w-3 h-3" />
-              )}
-              <span className="flex-1 text-left">Direct Messages</span>
+            <div className="flex items-center w-full px-3 py-1.5 group">
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); setShowDMPicker((v) => !v); }}
+                onClick={() => setDmsCollapsed((v) => !v)}
+                className="flex-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {dmsCollapsed ? (
+                  <ChevronRight className="w-3 h-3" />
+                ) : (
+                  <ChevronDown className="w-3 h-3" />
+                )}
+                <span className="text-left">Direct Messages</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowDMPicker((v) => !v)}
                 className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded hover:bg-muted-foreground/20 transition-all"
                 title="New direct message"
               >
                 <Plus className="w-3.5 h-3.5" />
               </button>
-            </button>
+            </div>
 
             {/* DM user picker */}
             {showDMPicker && (

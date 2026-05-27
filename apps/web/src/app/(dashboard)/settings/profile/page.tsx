@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { Camera, Trash2, Loader2 } from "lucide-react";
 import { api } from "@/trpc/react";
@@ -48,7 +47,6 @@ const LOCALES = [
 ];
 
 export default function ProfileSettingsPage() {
-  const { data: session } = useSession();
   const utils = api.useUtils();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
@@ -99,7 +97,7 @@ export default function ProfileSettingsPage() {
     );
   }
 
-  const displayName = profile?.name ?? session?.user?.name ?? "";
+  const displayName = profile?.name ?? "";
   const avatarColor = generateAvatarColor(displayName);
 
   return (
