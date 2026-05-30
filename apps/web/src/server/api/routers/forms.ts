@@ -2,12 +2,23 @@ import { createTRPCRouter, protectedProcedure, publicProcedure } from '@/server/
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { slugify } from '@/lib/utils';
+import { redis } from '@/lib/redis';
 import { optionSourcesRouter } from '@/server/api/routers/forms/optionSources';
 import { approvalsRouter } from '@/server/api/routers/forms/approvals';
 import { webhooksRouter } from '@/server/api/routers/forms/webhooks';
 import { apiTokensRouter } from '@/server/api/routers/forms/apiTokens';
 import { versionsRouter } from '@/server/api/routers/forms/versions';
 import { auditLogRouter } from '@/server/api/routers/forms/auditLog';
+
+async function verifyRecaptcha(token: string, secretKey: string): Promise<boolean> {
+  const res = await fetch('https://www.google.com/recaptcha/api/siteverify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `secret=${secretKey}&response=${token}`,
+  });
+  const data = await res.json() as { success: boolean; score?: number };
+  return data.success && (data.score === undefined || data.score >= 0.5);
+}
 
 // ─── Fields sub-router ────────────────────────────────────────────────────────
 
@@ -378,10 +389,14 @@ export const formsRouter = createTRPCRouter({
     .input(
       z.object({
         slug: z.string(),
-        data: z.record(z.unknown()),
+        data: z.record(
+          z.string().max(100, 'Field key too long'),
+          z.union([z.string().max(50000), z.number(), z.boolean(), z.null(), z.array(z.string().max(1000)).max(100)])
+        ).refine(d => Object.keys(d).length <= 200, { message: 'Too many form fields' }),
         ip_address: z.string().optional(),
         user_agent: z.string().optional(),
         referrer: z.string().optional(),
+        recaptcha_token: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -391,6 +406,28 @@ export const formsRouter = createTRPCRouter({
         include: { fields: true },
       });
       if (!form) throw new TRPCError({ code: 'NOT_FOUND', message: 'Form not found or not published' });
+
+      // Verify reCAPTCHA if enabled
+      if ((form as any).recaptcha_secret_key && (form as any).recaptcha_enabled) {
+        if (!input.recaptcha_token) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'reCAPTCHA verification required.' });
+        }
+        const isValid = await verifyRecaptcha(input.recaptcha_token, (form as any).recaptcha_secret_key as string);
+        if (!isValid) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'reCAPTCHA verification failed. Please try again.' });
+        }
+      }
+
+      // Enforce public rate limit (org-wide per-form, 1 hour window)
+      const formAny = form as any;
+      if (formAny.public_rate_limit && formAny.public_rate_limit > 0) {
+        const RATE_KEY = `form_sub:${form.id}:global`;
+        const count = await redis.incr(RATE_KEY);
+        if (count === 1) await redis.expire(RATE_KEY, 3600);
+        if (count > (formAny.public_rate_limit as number) * 10) {
+          throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Form submission limit exceeded. Try again later.' });
+        }
+      }
 
       // Check submission limit
       if (form.close_on_limit && form.submission_limit) {

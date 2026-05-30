@@ -230,31 +230,71 @@ function sanitizeIdentifier(name: string): string {
   return name.replace(/[^a-zA-Z0-9_]/g, '');
 }
 
+/**
+ * Builds a parameterized filter clause for a single filter.
+ * Returns the SQL fragment (with $N placeholders) and pushes bound values into `params`.
+ * `paramIndex` is the 1-based index of the NEXT parameter to assign and is mutated.
+ */
 function buildFilterClause(
   filter: { field: string; operator: string; value: unknown },
-  tableName: string
+  tableName: string,
+  params: unknown[],
+  paramIndexRef: { value: number }
 ): string {
   const col = `${sanitizeIdentifier(tableName)}.${sanitizeIdentifier(filter.field)}`;
   const val = filter.value;
-  const strVal = typeof val === 'string' ? `'${val.replace(/'/g, "''")}'` : String(val);
 
   switch (filter.operator) {
-    case 'eq': return `${col} = ${strVal}`;
-    case 'neq': return `${col} != ${strVal}`;
-    case 'gt': return `${col} > ${strVal}`;
-    case 'lt': return `${col} < ${strVal}`;
-    case 'gte': return `${col} >= ${strVal}`;
-    case 'lte': return `${col} <= ${strVal}`;
-    case 'like': return `${col} ILIKE '%${String(val).replace(/'/g, "''")}%'`;
-    case 'in': return `${col} = ANY(ARRAY[${(val as string[]).map((v) => `'${String(v).replace(/'/g, "''")}'`).join(',')}])`;
-    case 'is_null': return `${col} IS NULL`;
-    case 'is_not_null': return `${col} IS NOT NULL`;
-    default: return `${col} = ${strVal}`;
+    case 'eq': {
+      params.push(val);
+      return `${col} = $${paramIndexRef.value++}`;
+    }
+    case 'neq': {
+      params.push(val);
+      return `${col} != $${paramIndexRef.value++}`;
+    }
+    case 'gt': {
+      params.push(val);
+      return `${col} > $${paramIndexRef.value++}`;
+    }
+    case 'lt': {
+      params.push(val);
+      return `${col} < $${paramIndexRef.value++}`;
+    }
+    case 'gte': {
+      params.push(val);
+      return `${col} >= $${paramIndexRef.value++}`;
+    }
+    case 'lte': {
+      params.push(val);
+      return `${col} <= $${paramIndexRef.value++}`;
+    }
+    case 'like': {
+      // Escape % and _ in the value so they are treated as literals in ILIKE
+      const escaped = `%${String(val).replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
+      params.push(escaped);
+      return `${col} ILIKE $${paramIndexRef.value++}`;
+    }
+    case 'in': {
+      const arr = Array.isArray(val) ? (val as unknown[]) : [];
+      if (arr.length === 0) return '1=1';
+      const placeholders = arr.map(() => `$${paramIndexRef.value++}`).join(', ');
+      params.push(...arr);
+      return `${col} = ANY(ARRAY[${placeholders}])`;
+    }
+    case 'is_null':
+      return `${col} IS NULL`;
+    case 'is_not_null':
+      return `${col} IS NOT NULL`;
+    default: {
+      params.push(val);
+      return `${col} = $${paramIndexRef.value++}`;
+    }
   }
 }
 
 export async function runAnalyticsQuery(
-  prisma: { $queryRawUnsafe: (sql: string) => Promise<unknown[]> },
+  prisma: { $queryRawUnsafe: (sql: string, ...values: unknown[]) => Promise<unknown[]> },
   orgId: string,
   query: AnalyticsQuery
 ): Promise<Record<string, unknown>[]> {
@@ -264,7 +304,11 @@ export async function runAnalyticsQuery(
   }
 
   const table = sanitizeIdentifier(moduleDef.primary_table);
-  const safeOrgId = orgId.replace(/[^a-zA-Z0-9-]/g, '');
+
+  // Collect all parameterized values here; SQL placeholders are $1, $2, …
+  const params: unknown[] = [];
+  // Mutable reference so buildFilterClause can increment across calls
+  const paramIndexRef = { value: 1 };
 
   const selects: string[] = [];
   const groupByCols: string[] = [];
@@ -292,24 +336,26 @@ export async function runAnalyticsQuery(
     selects.push(`COUNT(${table}.id) AS "count_id"`);
   }
 
-  // WHERE clauses
-  const whereClauses: string[] = [
-    `${table}.organization_id = '${safeOrgId}'`,
-  ];
+  // WHERE clauses — all dynamic values go through params[], never inline
+  const whereClauses: string[] = [];
 
-  // Date range filter
+  // org_id is parameterized ($1 always)
+  params.push(orgId);
+  whereClauses.push(`${table}.organization_id = $${paramIndexRef.value++}`);
+
+  // Date range filter — values are parameterized
   if (query.dateRange) {
     const safeDateField = sanitizeIdentifier(query.dateRange.field);
-    const fromDate = query.dateRange.from.replace(/[^0-9T:.Z-]/g, '');
-    const toDate = query.dateRange.to.replace(/[^0-9T:.Z-]/g, '');
-    whereClauses.push(`${table}.${safeDateField} >= '${fromDate}'`);
-    whereClauses.push(`${table}.${safeDateField} <= '${toDate}'`);
+    params.push(query.dateRange.from);
+    whereClauses.push(`${table}.${safeDateField} >= $${paramIndexRef.value++}`);
+    params.push(query.dateRange.to);
+    whereClauses.push(`${table}.${safeDateField} <= $${paramIndexRef.value++}`);
   }
 
-  // Additional filters
+  // Additional filters — values are parameterized via buildFilterClause
   for (const filter of query.filters) {
     try {
-      whereClauses.push(buildFilterClause(filter, table));
+      whereClauses.push(buildFilterClause(filter, table, params, paramIndexRef));
     } catch {
       // Skip malformed filters
     }
@@ -320,7 +366,7 @@ export async function runAnalyticsQuery(
     whereClauses.push(`${table}.deleted_at IS NULL`);
   }
 
-  // ORDER BY
+  // ORDER BY — identifier only (sanitized), no user values
   let orderByClause = '';
   if (query.orderBy) {
     const safeField = sanitizeIdentifier(query.orderBy.field);
@@ -339,6 +385,6 @@ export async function runAnalyticsQuery(
     `LIMIT ${limit}`,
   ].filter(Boolean).join('\n');
 
-  const rows = await prisma.$queryRawUnsafe(sql);
+  const rows = await prisma.$queryRawUnsafe(sql, ...params);
   return rows as Record<string, unknown>[];
 }

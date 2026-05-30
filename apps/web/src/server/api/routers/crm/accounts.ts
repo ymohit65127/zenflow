@@ -9,7 +9,7 @@ const AccountCreateSchema = z.object({
   industry: z.string().optional(),
   size: z.enum(['SIZE_1_10', 'SIZE_11_50', 'SIZE_51_200', 'SIZE_201_1000', 'SIZE_1001_5000', 'SIZE_5001_PLUS']).optional(),
   annual_revenue: z.number().optional(),
-  website: z.string().optional(),
+  website: z.string().url('Must be a valid URL').optional().nullable(),
   phone: z.string().optional(),
   address: z.object({
     street: z.string().optional(),
@@ -21,8 +21,8 @@ const AccountCreateSchema = z.object({
   description: z.string().optional(),
   owner_id: z.string().optional(),
   parent_account_id: z.string().optional(),
-  linkedin_url: z.string().optional(),
-  twitter_url: z.string().optional(),
+  linkedin_url: z.string().url('Must be a valid URL').optional().nullable(),
+  twitter_url: z.string().url('Must be a valid URL').optional().nullable(),
   tags: z.array(z.string()).default([]),
 });
 

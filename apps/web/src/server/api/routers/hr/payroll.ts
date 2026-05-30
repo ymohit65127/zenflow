@@ -363,6 +363,7 @@ export const payrollRouter = createTRPCRouter({
 
       const where = {
         period_id: input.period_id,
+        period: { organization_id: orgId },
         ...(input.search
           ? {
               OR: [
@@ -421,7 +422,7 @@ export const payrollRouter = createTRPCRouter({
       if (!period) throw new TRPCError({ code: 'NOT_FOUND', message: 'Period not found' });
 
       const entries = await ctx.prisma.hrPayrollEntry.findMany({
-        where: { period_id: input.period_id },
+        where: { period_id: input.period_id, period: { organization_id: orgId } },
         include: {
           employee: {
             select: {

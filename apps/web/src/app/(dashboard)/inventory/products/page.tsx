@@ -15,6 +15,15 @@ import {
 import { api } from "@/trpc/react";
 import { formatCurrency, cn } from "@/lib/utils";
 import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 type ProductType = "PHYSICAL" | "DIGITAL" | "SERVICE" | "BUNDLE";
 
@@ -339,6 +348,8 @@ export default function ProductsPage() {
   const [typeFilter, setTypeFilter] = useState<ProductType | "">("");
   const [page, setPage] = useState(0);
   const [showAdd, setShowAdd] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmDeleteName, setConfirmDeleteName] = useState<string>("");
   const limit = 25;
 
   const utils = api.useUtils();
@@ -508,11 +519,7 @@ export default function ProductsPage() {
                           <td className="px-5 py-4">
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                               <button
-                                onClick={() => {
-                                  if (window.confirm(`Delete ${product.name}?`)) {
-                                    deleteMutation.mutate({ id: product.id });
-                                  }
-                                }}
+                                onClick={() => { setConfirmDeleteId(product.id); setConfirmDeleteName(product.name); }}
                                 className="p-1.5 rounded-lg hover:bg-red-500/10 text-muted-foreground hover:text-red-600 transition-colors"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -541,6 +548,19 @@ export default function ProductsPage() {
           )}
         </div>
       </div>
+
+      <Dialog open={!!confirmDeleteId} onOpenChange={(open) => { if (!open) { setConfirmDeleteId(null); setConfirmDeleteName(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {confirmDeleteName}?</DialogTitle>
+            <DialogDescription>This action cannot be undone.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setConfirmDeleteId(null); setConfirmDeleteName(""); }}>Cancel</Button>
+            <Button variant="destructive" onClick={() => { if (confirmDeleteId) { deleteMutation.mutate({ id: confirmDeleteId }); setConfirmDeleteId(null); setConfirmDeleteName(""); } }}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

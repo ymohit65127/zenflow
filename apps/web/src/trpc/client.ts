@@ -13,6 +13,7 @@ export const trpcClient = createTRPCClient<AppRouter>({
     httpBatchLink({
       url: `${getBaseUrl()}/api/trpc`,
       transformer: superjson,
+      maxURLLength: 2083,
     }),
   ],
 });

@@ -209,8 +209,10 @@ export const crmDealsRouter = createTRPCRouter({
       });
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deal not found' });
 
-      const stage = await ctx.prisma.crmStage.findUnique({ where: { id: input.stageId } });
-      if (!stage) throw new TRPCError({ code: 'NOT_FOUND', message: 'Stage not found' });
+      const stage = await ctx.prisma.crmStage.findFirst({
+        where: { id: input.stageId, pipeline: { organization_id: orgId } },
+      });
+      if (!stage) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Stage not found or belongs to different organization' });
 
       return ctx.prisma.crmDeal.update({
         where: { id: input.dealId },
@@ -403,6 +405,12 @@ export const crmDealsRouter = createTRPCRouter({
   removeProduct: protectedProcedure
     .input(z.object({ dealProductId: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const orgId = ctx.session.user.organizationId as string;
+      // Verify ownership
+      const dp = await ctx.prisma.crmDealProduct.findFirst({
+        where: { id: input.dealProductId, deal: { organization_id: orgId } },
+      });
+      if (!dp) throw new TRPCError({ code: 'FORBIDDEN', message: 'Not found or access denied' });
       return ctx.prisma.crmDealProduct.delete({ where: { id: input.dealProductId } });
     }),
 });

@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import { prisma } from "@zenflow/db";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import { redis } from "@/lib/redis";
+import { passwordSchema } from "@/lib/password-schema";
 
 const schema = z.object({
   token: z.string().min(1),
-  newPassword: z.string().min(8).max(128),
+  newPassword: passwordSchema,
 });
 
 export async function POST(req: Request) {
@@ -13,53 +15,40 @@ export async function POST(req: Request) {
     const body = await req.json() as unknown;
     const { token, newPassword } = schema.parse(body);
 
-    // Find user by reset token stored in metadata
-    const users = await prisma.user.findMany({
-      where: { deleted_at: null },
-      select: {
-        id: true,
-        metadata: true,
-      },
-    });
+    // O(1) Redis lookup — replaces full user-table scan
+    const TOKEN_KEY = `pw_reset:${token}`;
+    const tokenDataRaw = await redis.get(TOKEN_KEY);
 
-    // Filter in JS since metadata is Json
-    const user = users.find((u) => {
-      const meta =
-        typeof u.metadata === "object" && u.metadata !== null
-          ? (u.metadata as Record<string, unknown>)
-          : {};
-      return (
-        meta.resetToken === token &&
-        typeof meta.resetTokenExpires === "string" &&
-        new Date(meta.resetTokenExpires) > new Date()
-      );
-    });
-
-    if (!user) {
+    if (!tokenDataRaw) {
       return NextResponse.json(
         { error: "This reset link has expired or is invalid. Please request a new one." },
         { status: 400 }
       );
     }
 
+    const tokenData = JSON.parse(tokenDataRaw) as {
+      userId: string;
+      email: string;
+      createdAt: number;
+    };
+
+    // Delete token immediately (single-use)
+    await redis.del(TOKEN_KEY);
+
+    // Fetch the user by indexed ID — O(1)
+    const user = await prisma.user.findUnique({
+      where: { id: tokenData.userId, deleted_at: null },
+    });
+
+    if (!user) {
+      return NextResponse.json({ error: "User not found." }, { status: 400 });
+    }
+
     const newHash = await bcrypt.hash(newPassword, 12);
-
-    // Update password and clear token
-    const currentMeta =
-      typeof user.metadata === "object" && user.metadata !== null
-        ? (user.metadata as Record<string, unknown>)
-        : {};
-
-    const { resetToken: _rt, resetTokenExpires: _rte, ...restMeta } = currentMeta;
-    void _rt;
-    void _rte;
 
     await prisma.user.update({
       where: { id: user.id },
-      data: {
-        password_hash: newHash,
-        metadata: restMeta as Record<string, string>,
-      },
+      data: { password_hash: newHash },
     });
 
     return NextResponse.json({ success: true });

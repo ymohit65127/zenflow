@@ -2,13 +2,22 @@
 "use client";
 // @ts-nocheck
 
-import { use } from "react";
+import { use, useState } from "react";
 import { ArrowLeft, PlayCircle, CheckCircle2, XCircle, ClipboardCheck } from "lucide-react";
 import Link from "next/link";
 import { api } from "@/trpc/react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 type ProdStatus = "draft" | "confirmed" | "in_progress" | "completed" | "cancelled";
 
@@ -23,6 +32,7 @@ const STATUS_STEPS: Record<ProdStatus, number> = {
 export default function ProductionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const utils = api.useUtils();
+  const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
 
   const { data: order, isLoading } = api.inventory.production.get.useQuery({ id });
 
@@ -125,7 +135,7 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
               </button>
             )}
             {["draft", "confirmed", "in_progress"].includes(status) && (
-              <button onClick={() => { if (window.confirm("Cancel this order?")) cancelMutation.mutate({ id }); }} disabled={cancelMutation.isPending}
+              <button onClick={() => setConfirmCancelOpen(true)} disabled={cancelMutation.isPending}
                 className="flex items-center gap-1.5 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-60 text-red-500 px-4 py-2.5 rounded-lg text-sm font-medium">
                 <XCircle className="w-4 h-4" />
                 Cancel
@@ -199,6 +209,18 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
           </div>
         )}
       </div>
+    <Dialog open={confirmCancelOpen} onOpenChange={setConfirmCancelOpen}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Cancel this order?</DialogTitle>
+          <DialogDescription>This action cannot be undone.</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setConfirmCancelOpen(false)}>Back</Button>
+          <Button variant="destructive" onClick={() => { cancelMutation.mutate({ id }); setConfirmCancelOpen(false); }}>Cancel Order</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     </div>
   );
 }

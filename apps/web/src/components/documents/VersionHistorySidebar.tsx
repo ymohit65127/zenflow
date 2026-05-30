@@ -5,6 +5,15 @@ import { api } from "@/trpc/react";
 import { toast } from "sonner";
 import { cn, timeAgo } from "@/lib/utils";
 import { GitBranch, RotateCcw, Eye, X, Loader2, Clock } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 interface VersionHistorySidebarProps {
   documentId: string;
@@ -16,6 +25,7 @@ export function VersionHistorySidebar({ documentId, onClose, onPreview }: Versio
   const utils = api.useUtils();
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [restoring, setRestoring] = useState<string | null>(null);
+  const [confirmRestoreId, setConfirmRestoreId] = useState<string | null>(null);
 
   const { data: versions = [], isLoading } = api.documents.versions.list.useQuery({
     documentId,
@@ -44,9 +54,14 @@ export function VersionHistorySidebar({ documentId, onClose, onPreview }: Versio
   }
 
   function handleRestore(versionId: string) {
-    if (!window.confirm("Restore this version? The current content will be saved as a new version.")) return;
-    setRestoring(versionId);
-    restoreMutation.mutate({ documentId, versionId });
+    setConfirmRestoreId(versionId);
+  }
+
+  function confirmRestore() {
+    if (!confirmRestoreId) return;
+    setRestoring(confirmRestoreId);
+    setConfirmRestoreId(null);
+    restoreMutation.mutate({ documentId, versionId: confirmRestoreId });
   }
 
   // Notify parent when preview content is loaded
@@ -55,6 +70,7 @@ export function VersionHistorySidebar({ documentId, onClose, onPreview }: Versio
   }
 
   return (
+    <>
     <div className="flex flex-col h-full w-72 border-l border-border bg-card flex-shrink-0">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
@@ -167,5 +183,19 @@ export function VersionHistorySidebar({ documentId, onClose, onPreview }: Versio
         )}
       </div>
     </div>
+
+    <Dialog open={!!confirmRestoreId} onOpenChange={(open) => { if (!open) setConfirmRestoreId(null); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Restore this version?</DialogTitle>
+          <DialogDescription>The current content will be saved as a new version before restoring.</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setConfirmRestoreId(null)}>Cancel</Button>
+          <Button onClick={confirmRestore}>Restore</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

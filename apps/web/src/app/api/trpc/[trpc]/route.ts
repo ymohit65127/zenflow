@@ -3,8 +3,15 @@ import { type NextRequest } from "next/server";
 import { appRouter } from "@/server/api/root";
 import { createTRPCContext } from "@/server/trpc";
 
-const handler = (req: NextRequest) =>
-  fetchRequestHandler({
+const handler = (req: NextRequest) => {
+  // Reject oversized batches to prevent batch-flooding attacks
+  const url = new URL(req.url);
+  const batchParam = url.searchParams.get('batch');
+  if (batchParam && parseInt(batchParam) > 20) {
+    return new Response(JSON.stringify({ error: 'Batch size exceeded' }), { status: 400 });
+  }
+
+  return fetchRequestHandler({
     endpoint: "/api/trpc",
     req,
     router: appRouter,
@@ -15,5 +22,6 @@ const handler = (req: NextRequest) =>
       }
     },
   });
+};
 
 export { handler as GET, handler as POST };

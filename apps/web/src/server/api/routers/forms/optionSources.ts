@@ -1,6 +1,7 @@
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { Prisma } from '@prisma/client';
 
 const OptionSourceSchema = z.object({
   name: z.string().min(1).max(100),
@@ -121,23 +122,42 @@ export const optionSourcesRouter = createTRPCRouter({
 
       let rows: Record<string, unknown>[];
       try {
-        if (source.query_mode === 'raw' && source.raw_sql) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          rows = (await ctx.prisma.$queryRawUnsafe(source.raw_sql as string)) as Record<string, unknown>[];
+        if (source.query_mode === 'raw') {
+          // Raw SQL mode is disabled for security reasons — prevents SQL injection and cross-tenant data access
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Raw SQL option sources are disabled. Use structured mode instead.',
+          });
         } else {
           if (!source.source_table || !source.source_column) {
             throw new TRPCError({ code: 'BAD_REQUEST', message: 'source_table and source_column are required for structured mode' });
           }
-          const cols = [source.source_column, source.value_column]
-            .filter(Boolean)
-            .join(', ');
-          const distinct = source.apply_distinct ? 'DISTINCT' : '';
-          const where = source.where_clause ? `WHERE ${source.where_clause as string}` : '';
-          const orderBy = source.order_by ? `ORDER BY ${source.order_by as string}` : '';
-          const limit = `LIMIT 20`;
-          const sql = `SELECT ${distinct} ${cols} FROM ${source.source_table as string} ${where} ${orderBy} ${limit}`;
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          rows = (await ctx.prisma.$queryRawUnsafe(sql)) as Record<string, unknown>[];
+
+          // Allowlist of tables that can be used as option sources
+          const ALLOWED_TABLES = ['crm_contacts', 'crm_accounts', 'crm_deals', 'hr_employees',
+            'inv_products', 'crm_territories', 'hr_departments', 'hr_designations'] as const;
+
+          // Sanitize identifier — only allow alphanumeric and underscore
+          const sanitizeIdentifier = (s: string) => s.replace(/[^a-zA-Z0-9_]/g, '');
+
+          const table = sanitizeIdentifier(source.source_table as string);
+          const valueCol = sanitizeIdentifier(source.value_column as string || 'id');
+          const labelCol = sanitizeIdentifier(source.source_column as string || 'name');
+
+          if (!ALLOWED_TABLES.includes(table as typeof ALLOWED_TABLES[number])) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: `Table '${table}' is not allowed as an option source.` });
+          }
+
+          // Use Prisma.sql for safe parameterization — DO NOT use string interpolation for values
+          const orgFilter = Prisma.sql`organization_id = ${orgId}`;
+          const limitClause = Prisma.sql`LIMIT 20`;
+
+          rows = await ctx.prisma.$queryRaw(
+            Prisma.sql`SELECT ${Prisma.raw(valueCol)} as value, ${Prisma.raw(labelCol)} as label
+                       FROM ${Prisma.raw(table)}
+                       WHERE ${orgFilter} AND deleted_at IS NULL
+                       ${limitClause}`
+          ) as Record<string, unknown>[];
         }
       } catch (err) {
         throw new TRPCError({
@@ -149,8 +169,8 @@ export const optionSourcesRouter = createTRPCRouter({
       return rows.slice(0, 20).map((row) => ({
         label: source.label_template
           ? (source.label_template as string).replace(/\{(\w+)\}/g, (_: string, k: string) => String(row[k] ?? ''))
-          : String(row[source.source_column as string] ?? ''),
-        value: String(row[(source.value_column ?? source.source_column) as string] ?? ''),
+          : String(row['label'] ?? ''),
+        value: String(row['value'] ?? ''),
         _raw: row,
       }));
     }),

@@ -9,6 +9,15 @@ import { api } from "@/trpc/react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 type CountStatus = "draft" | "counting" | "reconciled" | "posted";
 const STATUS_COLORS: Record<CountStatus, string> = {
@@ -90,6 +99,7 @@ export default function PhysicalCountPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [page, setPage] = useState(0);
   const limit = 20;
+  const [confirmPostId, setConfirmPostId] = useState<string | null>(null);
 
   const utils = api.useUtils();
   const { data, isLoading } = api.inventory.physicalCount.list.useQuery({ limit, offset: page * limit });
@@ -183,7 +193,7 @@ export default function PhysicalCountPage() {
                                 </button>
                               )}
                               {status === "reconciled" && (
-                                <button onClick={() => { if (window.confirm("Post this count?")) postMutation.mutate({ id: count.id }); }} className="flex items-center gap-1 text-xs text-green-600 hover:underline">
+                                <button onClick={() => setConfirmPostId(count.id)} className="flex items-center gap-1 text-xs text-green-600 hover:underline">
                                   <CheckCircle className="w-3 h-3" /> Post
                                 </button>
                               )}
@@ -208,6 +218,19 @@ export default function PhysicalCountPage() {
           )}
         </div>
       </div>
+
+      <Dialog open={!!confirmPostId} onOpenChange={(open) => { if (!open) setConfirmPostId(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Post this count?</DialogTitle>
+            <DialogDescription>This will finalize the physical count and update inventory levels.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmPostId(null)}>Cancel</Button>
+            <Button onClick={() => { if (confirmPostId) { postMutation.mutate({ id: confirmPostId }); setConfirmPostId(null); } }}>Post</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

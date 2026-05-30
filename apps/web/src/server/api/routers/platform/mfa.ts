@@ -31,7 +31,9 @@ function generateTotpSecret(userEmail: string, orgName: string) {
 }
 
 function verifyTotpCode(secret: string, code: string): boolean {
-  if (!speakeasy) return code === "000000";
+  if (!speakeasy) {
+    throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'MFA library not available. Contact support.' });
+  }
   return speakeasy.totp.verify({
     secret,
     encoding: "base32",
@@ -50,9 +52,13 @@ function generateBackupCodes(): { plain: string[]; hashed: string[] } {
   return { plain, hashed };
 }
 
-const MFA_KEY = process.env.MFA_ENCRYPTION_KEY
-  ? Buffer.from(process.env.MFA_ENCRYPTION_KEY.slice(0, 64), "hex")
-  : crypto.randomBytes(32);
+const MFA_ENCRYPTION_KEY_RAW = process.env.MFA_ENCRYPTION_KEY;
+if (!MFA_ENCRYPTION_KEY_RAW && process.env.NODE_ENV === 'production') {
+  throw new Error('FATAL: MFA_ENCRYPTION_KEY env var is required in production. Set a 64-char hex string.');
+}
+const MFA_KEY = MFA_ENCRYPTION_KEY_RAW
+  ? Buffer.from(MFA_ENCRYPTION_KEY_RAW.slice(0, 64), "hex")
+  : crypto.randomBytes(32); // dev only — restarts invalidate TOTP setup
 
 function encryptSecret(text: string): string {
   const iv = crypto.randomBytes(12);
@@ -183,7 +189,7 @@ export const mfaRouter = createTRPCRouter({
           if (!valid) throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid code" });
         } catch (err: any) {
           if (err.code === "UNAUTHORIZED") throw err;
-          // Decryption failed — allow with any code in dev
+          throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to verify MFA code. Please try again.' });
         }
       }
 

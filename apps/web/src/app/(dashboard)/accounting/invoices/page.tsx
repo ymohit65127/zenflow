@@ -15,6 +15,15 @@ import {
 import { api } from "@/trpc/react";
 import { formatCurrency, cn } from "@/lib/utils";
 import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 type InvoiceStatus =
   | "DRAFT"
@@ -50,6 +59,8 @@ export default function InvoicesPage() {
   const [statusFilter, setStatusFilter] = useState<InvoiceStatus | "">("");
   const [page, setPage] = useState(0);
   const limit = 20;
+  const [confirmDeleteInvoiceId, setConfirmDeleteInvoiceId] = useState<string | null>(null);
+  const [confirmDeleteInvoiceNum, setConfirmDeleteInvoiceNum] = useState<string>("");
 
   const utils = api.useUtils();
 
@@ -256,15 +267,7 @@ export default function InvoicesPage() {
                           )}
                           {inv.status !== "PAID" && inv.status !== "CANCELLED" && (
                             <button
-                              onClick={() => {
-                                if (
-                                  window.confirm(
-                                    `Delete invoice ${inv.invoice_number}?`
-                                  )
-                                ) {
-                                  deleteMutation.mutate({ id: inv.id });
-                                }
-                              }}
+                              onClick={() => { setConfirmDeleteInvoiceId(inv.id); setConfirmDeleteInvoiceNum(inv.invoice_number); }}
                               title="Delete invoice"
                               className="p-1.5 rounded-lg hover:bg-red-500/10 transition-colors text-muted-foreground hover:text-red-600"
                             >
@@ -307,6 +310,19 @@ export default function InvoicesPage() {
           </>
         )}
       </div>
+
+      <Dialog open={!!confirmDeleteInvoiceId} onOpenChange={(open) => { if (!open) { setConfirmDeleteInvoiceId(null); setConfirmDeleteInvoiceNum(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete invoice {confirmDeleteInvoiceNum}?</DialogTitle>
+            <DialogDescription>This action cannot be undone.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setConfirmDeleteInvoiceId(null); setConfirmDeleteInvoiceNum(""); }}>Cancel</Button>
+            <Button variant="destructive" onClick={() => { if (confirmDeleteInvoiceId) { deleteMutation.mutate({ id: confirmDeleteInvoiceId }); setConfirmDeleteInvoiceId(null); setConfirmDeleteInvoiceNum(""); } }}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

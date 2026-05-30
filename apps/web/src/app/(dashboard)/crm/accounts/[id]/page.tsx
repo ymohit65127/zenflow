@@ -22,6 +22,12 @@ import {
   Linkedin,
 } from "lucide-react";
 
+function safeLinkHref(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  if (url.startsWith('https://') || url.startsWith('http://')) return url;
+  return undefined;
+}
+
 function formatCurrency(amount: number | null | undefined) {
   if (!amount) return "—";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(amount);
@@ -100,7 +106,7 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
           {account.linkedin_url && (
             <div className="flex items-center gap-2 text-sm">
               <Linkedin className="w-4 h-4 text-muted-foreground" />
-              <a href={account.linkedin_url} target="_blank" className="text-brand-500 hover:underline">LinkedIn</a>
+              <a href={safeLinkHref(account.linkedin_url)} target="_blank" rel="noopener noreferrer" className="text-brand-500 hover:underline">LinkedIn</a>
             </div>
           )}
         </div>

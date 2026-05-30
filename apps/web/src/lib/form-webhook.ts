@@ -6,6 +6,7 @@
  */
 
 import crypto from 'crypto';
+import { assertSafeUrl } from './ssrf-guard';
 
 export interface WebhookDispatchResult {
   success: boolean;
@@ -27,6 +28,14 @@ export async function dispatchWebhook(
   payload: object,
   deliveryId?: string
 ): Promise<WebhookDispatchResult> {
+  // SSRF protection — blocks requests to private/internal addresses
+  await assertSafeUrl(webhookUrl);
+
+  // Minimum secret length enforcement
+  if (secret && secret.length < 16) {
+    throw new Error('Webhook secret must be at least 16 characters long.');
+  }
+
   const body = JSON.stringify(payload);
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',

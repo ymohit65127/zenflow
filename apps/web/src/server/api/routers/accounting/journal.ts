@@ -2,6 +2,7 @@
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { logAudit } from '@/lib/audit';
 
 async function generateEntryNumber(
   prisma: Parameters<Parameters<typeof protectedProcedure.query>[0]>[0]['ctx']['prisma'],
@@ -152,7 +153,7 @@ export const journalRouter = createTRPCRouter({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
-      return ctx.prisma.$transaction(async (tx) => {
+      const posted = await ctx.prisma.$transaction(async (tx) => {
         const entry = await tx.accJournalEntry.findFirst({
           where: { id: input.id, org_id: orgId },
           include: {
@@ -208,6 +209,14 @@ export const journalRouter = createTRPCRouter({
           include: { lines: true },
         });
       });
+      void logAudit(ctx.prisma, {
+        orgId,
+        userId: ctx.session.user.id as string,
+        action: 'JOURNAL_POSTED',
+        resourceType: 'journal_entry',
+        resourceId: posted.id as string,
+      });
+      return posted;
     }),
 
   reverse: protectedProcedure

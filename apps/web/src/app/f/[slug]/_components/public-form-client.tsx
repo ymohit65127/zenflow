@@ -381,7 +381,7 @@ export function PublicFormClient({ form }: { form: PublicFormData }) {
     if (!validate()) return;
     submitMutation.mutate({
       slug: form.slug,
-      data: formData,
+      data: formData as Record<string, string | number | boolean | string[] | null>,
       user_agent: typeof window !== 'undefined' ? navigator.userAgent : undefined,
       referrer: typeof window !== 'undefined' ? document.referrer || undefined : undefined,
     });

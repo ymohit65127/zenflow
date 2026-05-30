@@ -8,6 +8,7 @@
 
 import type { PrismaClient } from '@zenflow/db';
 import { interpolate } from './template-interpolation';
+import { assertSafeUrl } from '@/lib/ssrf-guard';
 
 export type WorkflowNode = {
   id: string;
@@ -129,6 +130,9 @@ async function executeNodeAction(
       const method = ((config.method as string) ?? 'POST').toUpperCase();
       const headers = (config.headers as Record<string, string>) ?? {};
       const body = config.body ? JSON.stringify(config.body) : undefined;
+
+      // SSRF protection — blocks requests to private/internal addresses
+      await assertSafeUrl(url);
 
       const response = await fetch(url, {
         method,

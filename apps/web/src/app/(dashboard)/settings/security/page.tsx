@@ -112,16 +112,14 @@ function MfaWizard({ onClose }: { onClose: () => void }) {
           ) : qrData ? (
             <>
               <div className="flex justify-center p-4 rounded-xl border border-border bg-white">
-                {qrData.qrCode.startsWith("data:image/svg") ? (
-                  <div
-                    className="w-40 h-40"
-                    dangerouslySetInnerHTML={{
-                      __html: decodeURIComponent(qrData.qrCode.replace("data:image/svg+xml;utf8,", "")),
-                    }}
-                  />
-                ) : (
-                  <img src={qrData.qrCode} alt="TOTP QR Code" className="w-40 h-40" />
-                )}
+                <img
+                  src={qrData.qrCode.startsWith('data:image/svg+xml')
+                    ? `data:image/svg+xml;base64,${Buffer.from(decodeURIComponent(qrData.qrCode.replace('data:image/svg+xml;utf8,', ''))).toString('base64')}`
+                    : qrData.qrCode
+                  }
+                  alt="TOTP QR Code"
+                  className="w-40 h-40 border rounded"
+                />
               </div>
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground text-center">

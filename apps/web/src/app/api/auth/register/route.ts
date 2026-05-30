@@ -2,17 +2,38 @@ import { NextResponse } from "next/server";
 import { prisma } from "@zenflow/db";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { redis } from "@/lib/redis";
+import { headers } from "next/headers";
+import { passwordSchema } from "@/lib/password-schema";
 
 const registerSchema = z.object({
   name: z.string().min(2).max(100),
   email: z.string().email(),
-  password: z.string().min(8).max(128),
+  password: passwordSchema,
   orgName: z.string().min(2).max(100),
   orgSlug: z.string().min(2).max(50).regex(/^[a-z0-9-]+$/),
 });
 
 export async function POST(req: Request) {
   try {
+    // IP-based rate limiting: max 5 registrations per IP per hour
+    const headersList = await headers();
+    const ip =
+      headersList.get("x-forwarded-for")?.split(",")[0] ??
+      headersList.get("x-real-ip") ??
+      "0.0.0.0";
+
+    const REGISTER_KEY = `register:${ip}`;
+    const regAttempts = await redis.incr(REGISTER_KEY);
+    if (regAttempts === 1) await redis.expire(REGISTER_KEY, 3600); // 1 hour window
+
+    if (regAttempts > 5) {
+      return Response.json(
+        { error: "Too many registration attempts. Please try again in an hour." },
+        { status: 429 }
+      );
+    }
+
     const body = await req.json() as unknown;
     const data = registerSchema.parse(body);
 

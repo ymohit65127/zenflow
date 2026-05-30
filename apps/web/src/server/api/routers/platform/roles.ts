@@ -1,6 +1,7 @@
 import { createTRPCRouter, protectedProcedure } from "@/server/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { logAudit } from '@/lib/audit';
 
 const MODULES = [
   "crm",
@@ -63,8 +64,9 @@ export const rolesRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const role = await ctx.prisma.role.findFirst({ where: { id: input.id } });
-      if (!role) throw new TRPCError({ code: "NOT_FOUND" });
+      const orgId = ctx.session.user.organizationId as string;
+      const role = await ctx.prisma.role.findFirst({ where: { id: input.id, organization_id: orgId } });
+      if (!role) throw new TRPCError({ code: "FORBIDDEN", message: "Role not found or access denied" });
       if (role.is_system) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Cannot modify system roles" });
       }
@@ -74,8 +76,9 @@ export const rolesRouter = createTRPCRouter({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const role = await ctx.prisma.role.findFirst({ where: { id: input.id } });
-      if (!role) throw new TRPCError({ code: "NOT_FOUND" });
+      const orgId = ctx.session.user.organizationId as string;
+      const role = await ctx.prisma.role.findFirst({ where: { id: input.id, organization_id: orgId } });
+      if (!role) throw new TRPCError({ code: "FORBIDDEN", message: "Role not found or access denied" });
       if (role.is_system) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Cannot delete system roles" });
       }
@@ -94,6 +97,11 @@ export const rolesRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const orgId = ctx.session.user.organizationId as string;
+      // Verify role belongs to this org
+      const role = await ctx.prisma.role.findFirst({ where: { id: input.role_id, organization_id: orgId } });
+      if (!role) throw new TRPCError({ code: "FORBIDDEN", message: "Role not found or access denied" });
+
       // Find or create the Permission record
       const perm = await ctx.prisma.permission.upsert({
         where: {
@@ -131,13 +139,25 @@ export const rolesRouter = createTRPCRouter({
   revokePermission: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const orgId = ctx.session.user.organizationId as string;
+      // Verify the rolePermission's role belongs to this org
+      const rp = await ctx.prisma.rolePermission.findFirst({
+        where: { id: input.id, role: { organization_id: orgId } },
+      });
+      if (!rp) throw new TRPCError({ code: "FORBIDDEN", message: "Role not found or access denied" });
       return ctx.prisma.rolePermission.delete({ where: { id: input.id } });
     }),
 
   assignRole: protectedProcedure
     .input(z.object({ user_id: z.string(), role_id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.prisma.userRole.upsert({
+      const orgId = ctx.session.user.organizationId as string;
+      // Verify both role and user belong to this org
+      const role = await ctx.prisma.role.findFirst({ where: { id: input.role_id, organization_id: orgId } });
+      if (!role) throw new TRPCError({ code: "FORBIDDEN", message: "Role not found or access denied" });
+      const user = await ctx.prisma.user.findFirst({ where: { id: input.user_id, organization_id: orgId } });
+      if (!user) throw new TRPCError({ code: "FORBIDDEN", message: "User not found or access denied" });
+      const result = await ctx.prisma.userRole.upsert({
         where: {
           user_id_role_id: {
             user_id: input.user_id,
@@ -150,12 +170,27 @@ export const rolesRouter = createTRPCRouter({
         },
         update: {},
       });
+      void logAudit(ctx.prisma, {
+        orgId,
+        userId: ctx.session.user.id as string,
+        action: 'ROLE_ASSIGNED',
+        resourceType: 'user_role',
+        resourceId: input.user_id,
+        after: { role_id: input.role_id },
+      });
+      return result;
     }),
 
   revokeRole: protectedProcedure
     .input(z.object({ user_id: z.string(), role_id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.prisma.userRole.delete({
+      const orgId = ctx.session.user.organizationId as string;
+      // Verify both role and user belong to this org
+      const role = await ctx.prisma.role.findFirst({ where: { id: input.role_id, organization_id: orgId } });
+      if (!role) throw new TRPCError({ code: "FORBIDDEN", message: "Role not found or access denied" });
+      const user = await ctx.prisma.user.findFirst({ where: { id: input.user_id, organization_id: orgId } });
+      if (!user) throw new TRPCError({ code: "FORBIDDEN", message: "User not found or access denied" });
+      const deleted = await ctx.prisma.userRole.delete({
         where: {
           user_id_role_id: {
             user_id: input.user_id,
@@ -163,13 +198,23 @@ export const rolesRouter = createTRPCRouter({
           },
         },
       });
+      void logAudit(ctx.prisma, {
+        orgId,
+        userId: ctx.session.user.id as string,
+        action: 'ROLE_REVOKED',
+        resourceType: 'user_role',
+        resourceId: input.user_id,
+        before: { role_id: input.role_id },
+      });
+      return deleted;
     }),
 
   listMembers: protectedProcedure
     .input(z.object({ role_id: z.string() }))
     .query(async ({ ctx, input }) => {
+      const orgId = ctx.session.user.organizationId as string;
       return ctx.prisma.userRole.findMany({
-        where: { role_id: input.role_id },
+        where: { role_id: input.role_id, role: { organization_id: orgId } },
         include: {
           user: {
             select: { id: true, name: true, email: true, avatar_url: true },

@@ -8,6 +8,8 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@zenflow/db";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { logAudit } from '@/lib/audit';
+import { redis } from "./redis";
 
 const credentialsSchema = z.object({
   email: z.string().email(),
@@ -53,6 +55,23 @@ export const authConfig: NextAuthConfig = {
 
         const { email, password } = parsed.data;
 
+        // Brute-force protection: rate-limit failed login attempts per email
+        const RATE_LIMIT_KEY = `login_fail:${email.toLowerCase()}`;
+        const MAX_ATTEMPTS = 5;
+        const WINDOW_SECS = 15 * 60; // 15 minutes
+
+        const attempts = await redis.incr(RATE_LIMIT_KEY);
+        if (attempts === 1) {
+          await redis.expire(RATE_LIMIT_KEY, WINDOW_SECS);
+        }
+
+        if (attempts > MAX_ATTEMPTS) {
+          const ttl = await redis.ttl(RATE_LIMIT_KEY);
+          throw new Error(
+            `Too many failed login attempts. Please try again in ${Math.ceil(ttl / 60)} minutes.`
+          );
+        }
+
         const user = await prisma.user.findFirst({
           where: { email, deleted_at: null },
         });
@@ -60,7 +79,19 @@ export const authConfig: NextAuthConfig = {
         if (!user?.password_hash) return null;
 
         const valid = await bcrypt.compare(password, user.password_hash);
-        if (!valid) return null;
+        if (!valid) {
+          void logAudit(prisma, {
+            orgId: user.organization_id ?? 'unknown',
+            userId: user.id,
+            action: 'LOGIN_FAILED',
+            resourceType: 'user',
+            resourceId: user.id,
+          });
+          return null;
+        }
+
+        // Login succeeded — clear the failed-attempt counter
+        await redis.del(RATE_LIMIT_KEY);
 
         // Update last login
         await prisma.user.update({
@@ -69,6 +100,14 @@ export const authConfig: NextAuthConfig = {
             last_login_at: new Date(),
             login_count: { increment: 1 },
           },
+        });
+
+        void logAudit(prisma, {
+          orgId: user.organization_id ?? 'unknown',
+          userId: user.id,
+          action: 'LOGIN',
+          resourceType: 'user',
+          resourceId: user.id,
         });
 
         return {

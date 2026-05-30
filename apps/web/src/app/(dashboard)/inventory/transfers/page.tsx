@@ -18,6 +18,15 @@ import { api } from "@/trpc/react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 type TransferStatus = "draft" | "in_transit" | "received" | "cancelled";
 
@@ -175,6 +184,7 @@ export default function TransfersPage() {
   const [statusFilter, setStatusFilter] = useState<TransferStatus | "">("");
   const [page, setPage] = useState(0);
   const limit = 20;
+  const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
 
   const utils = api.useUtils();
   const { data, isLoading } = api.inventory.transfers.list.useQuery({
@@ -273,11 +283,7 @@ export default function TransfersPage() {
                           <td className="px-5 py-4">
                             {t.status !== "cancelled" && t.status !== "received" && (
                               <button
-                                onClick={() => {
-                                  if (window.confirm("Cancel this transfer?")) {
-                                    cancelMutation.mutate({ id: t.id });
-                                  }
-                                }}
+                                onClick={() => setConfirmCancelId(t.id)}
                                 className="text-xs text-red-500 hover:underline"
                               >
                                 Cancel
@@ -303,6 +309,19 @@ export default function TransfersPage() {
           )}
         </div>
       </div>
+
+      <Dialog open={!!confirmCancelId} onOpenChange={(open) => { if (!open) setConfirmCancelId(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancel this transfer?</DialogTitle>
+            <DialogDescription>This action cannot be undone.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmCancelId(null)}>Back</Button>
+            <Button variant="destructive" onClick={() => { if (confirmCancelId) { cancelMutation.mutate({ id: confirmCancelId }); setConfirmCancelId(null); } }}>Cancel Transfer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

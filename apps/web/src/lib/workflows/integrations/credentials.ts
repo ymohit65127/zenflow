@@ -6,8 +6,16 @@ import crypto from 'crypto';
 const ALGORITHM = 'aes-256-gcm';
 
 function deriveKey(orgId: string): Buffer {
-  const secret = process.env.ENCRYPTION_SECRET ?? 'zenflow-default-secret-change-in-production';
-  return crypto.scryptSync(orgId + secret, 'zenflow-salt', 32);
+  const secret = process.env.ENCRYPTION_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('FATAL: ENCRYPTION_SECRET env var is required in production.');
+    }
+    // Dev fallback — NEVER use in production
+    console.warn('[SECURITY WARNING] ENCRYPTION_SECRET not set. Using insecure dev fallback. Set this env var!');
+  }
+  const secretKey = secret ?? 'zenflow-dev-insecure-fallback-do-not-use-in-prod';
+  return crypto.scryptSync(orgId + secretKey, 'zenflow-salt', 32);
 }
 
 export type EncryptedCredentials = {

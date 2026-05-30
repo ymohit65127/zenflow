@@ -3,6 +3,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
+import { passwordSchema } from "@/lib/password-schema";
 
 export const settingsRouter = createTRPCRouter({
   // -----------------------------------------------------------------------
@@ -70,7 +71,7 @@ export const settingsRouter = createTRPCRouter({
       .input(
         z.object({
           currentPassword: z.string().min(1),
-          newPassword: z.string().min(8).max(128),
+          newPassword: passwordSchema,
         })
       )
       .mutation(async ({ ctx, input }) => {

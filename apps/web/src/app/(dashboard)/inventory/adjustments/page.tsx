@@ -14,6 +14,15 @@ import { api } from "@/trpc/react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 const REASONS = [
   "damaged",
@@ -170,6 +179,7 @@ export default function AdjustmentsPage() {
   const [statusFilter, setStatusFilter] = useState<"draft" | "posted" | "">("");
   const [page, setPage] = useState(0);
   const limit = 20;
+  const [confirmVoidId, setConfirmVoidId] = useState<string | null>(null);
 
   const utils = api.useUtils();
   const { data, isLoading } = api.inventory.adjustments.list.useQuery({
@@ -282,7 +292,7 @@ export default function AdjustmentsPage() {
                         {adj.status === "draft" && (
                           <div className="flex gap-2">
                             <button onClick={() => postMutation.mutate({ id: adj.id })} className="text-xs text-green-600 hover:underline">Post</button>
-                            <button onClick={() => { if (window.confirm("Void this adjustment?")) voidMutation.mutate({ id: adj.id }); }} className="text-xs text-red-500 hover:underline">Void</button>
+                            <button onClick={() => setConfirmVoidId(adj.id)} className="text-xs text-red-500 hover:underline">Void</button>
                           </div>
                         )}
                       </td>
@@ -294,6 +304,19 @@ export default function AdjustmentsPage() {
           )}
         </div>
       </div>
+
+      <Dialog open={!!confirmVoidId} onOpenChange={(open) => { if (!open) setConfirmVoidId(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Void this adjustment?</DialogTitle>
+            <DialogDescription>This action cannot be undone.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmVoidId(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => { if (confirmVoidId) { voidMutation.mutate({ id: confirmVoidId }); setConfirmVoidId(null); } }}>Void</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
