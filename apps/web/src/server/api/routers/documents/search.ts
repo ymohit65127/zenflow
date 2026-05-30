@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 
@@ -28,7 +27,7 @@ export const searchRouter = createTRPCRouter({
       };
 
       const [results, total] = await Promise.all([
-        ctx.prisma.document.findMany({
+        ctx.prisma.docV2.findMany({
           where,
           select: {
             id: true,
@@ -42,7 +41,7 @@ export const searchRouter = createTRPCRouter({
           take: input.limit,
           skip: input.offset,
         }),
-        ctx.prisma.document.count({ where }),
+        ctx.prisma.docV2.count({ where }),
       ]);
 
       return { results, total };

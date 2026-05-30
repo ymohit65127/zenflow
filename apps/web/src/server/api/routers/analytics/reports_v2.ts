@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -125,7 +124,7 @@ export const reportsV2Router = createTRPCRouter({
       };
 
       const [reports, total] = await Promise.all([
-        ctx.prisma.analyticsReport.findMany({
+        ctx.prisma.analyticsReportV2.findMany({
           where,
           orderBy: { created_at: 'desc' },
           skip,
@@ -143,7 +142,7 @@ export const reportsV2Router = createTRPCRouter({
             updated_at: true,
           },
         }),
-        ctx.prisma.analyticsReport.count({ where }),
+        ctx.prisma.analyticsReportV2.count({ where }),
       ]);
 
       return { reports, total, page: input.page, pageSize };
@@ -153,7 +152,7 @@ export const reportsV2Router = createTRPCRouter({
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
-      const report = await ctx.prisma.analyticsReport.findFirst({
+      const report = await ctx.prisma.analyticsReportV2.findFirst({
         where: { id: input.id, organization_id: orgId },
         include: {
           scheduled_reports: {
@@ -175,7 +174,7 @@ export const reportsV2Router = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const userId = ctx.session.user.id as string;
-      return ctx.prisma.analyticsReport.create({
+      return ctx.prisma.analyticsReportV2.create({
         data: {
           organization_id: orgId,
           created_by: userId,
@@ -195,11 +194,11 @@ export const reportsV2Router = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const { id, ...data } = input;
-      const existing = await ctx.prisma.analyticsReport.findFirst({
+      const existing = await ctx.prisma.analyticsReportV2.findFirst({
         where: { id, organization_id: orgId },
       });
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND' });
-      return ctx.prisma.analyticsReport.update({
+      return ctx.prisma.analyticsReportV2.update({
         where: { id },
         data: {
           ...(data.name !== undefined ? { name: data.name } : {}),
@@ -217,11 +216,11 @@ export const reportsV2Router = createTRPCRouter({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
-      const existing = await ctx.prisma.analyticsReport.findFirst({
+      const existing = await ctx.prisma.analyticsReportV2.findFirst({
         where: { id: input.id, organization_id: orgId },
       });
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND' });
-      return ctx.prisma.analyticsReport.delete({ where: { id: input.id } });
+      return ctx.prisma.analyticsReportV2.delete({ where: { id: input.id } });
     }),
 
   run: protectedProcedure
@@ -235,7 +234,7 @@ export const reportsV2Router = createTRPCRouter({
     }))
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
-      const report = await ctx.prisma.analyticsReport.findFirst({
+      const report = await ctx.prisma.analyticsReportV2.findFirst({
         where: { id: input.id, organization_id: orgId },
       });
       if (!report) throw new TRPCError({ code: 'NOT_FOUND' });
@@ -269,7 +268,7 @@ export const reportsV2Router = createTRPCRouter({
       }
       const duration = Date.now() - start;
 
-      await ctx.prisma.analyticsReport.update({
+      await ctx.prisma.analyticsReportV2.update({
         where: { id: input.id },
         data: { last_run_at: new Date(), last_run_duration_ms: duration },
       });

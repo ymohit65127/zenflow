@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { use } from 'react';
@@ -54,13 +53,14 @@ export default function TimelinePage({ params }: { params: Promise<{ id: string 
   }> = [];
 
   phases?.forEach((phase) => {
+    const phaseColor = phase.color ?? '#6B7280';
     if (phase.start_date) {
       events.push({
         type: 'phase_start',
         date: new Date(phase.start_date),
         id: phase.id,
         name: `${phase.name} — Start`,
-        color: phase.color,
+        color: phaseColor,
         status: phase.status,
         description: phase.description ?? null,
       });
@@ -71,7 +71,7 @@ export default function TimelinePage({ params }: { params: Promise<{ id: string 
         date: new Date(phase.end_date),
         id: phase.id + '_end',
         name: `${phase.name} — End`,
-        color: phase.color,
+        color: phaseColor,
         status: phase.status,
       });
     }
@@ -83,7 +83,7 @@ export default function TimelinePage({ params }: { params: Promise<{ id: string 
       date: new Date(m.due_date),
       id: m.id,
       name: m.name,
-      color: m.color,
+      color: '#F59E0B',
       status: m.status,
       description: m.description ?? null,
     });
@@ -141,7 +141,7 @@ export default function TimelinePage({ params }: { params: Promise<{ id: string 
                 >
                   <div
                     className="w-3 h-12 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: phase.color }}
+                    style={{ backgroundColor: phase.color ?? '#6B7280' }}
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
@@ -165,14 +165,14 @@ export default function TimelinePage({ params }: { params: Promise<{ id: string 
                         <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                           <div
                             className="h-full rounded-full transition-all"
-                            style={{ width: `${progress}%`, backgroundColor: phase.color }}
+                            style={{ width: `${progress}%`, backgroundColor: phase.color ?? '#6B7280' }}
                           />
                         </div>
                       </div>
                     )}
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <div className="text-lg font-bold">{phase._count?.tasks ?? 0}</div>
+                    <div className="text-lg font-bold">—</div>
                     <div className="text-xs text-muted-foreground">tasks</div>
                   </div>
                 </div>

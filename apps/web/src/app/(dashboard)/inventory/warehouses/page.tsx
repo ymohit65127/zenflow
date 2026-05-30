@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { useState } from "react";
 import {
@@ -95,9 +93,6 @@ function CreateWarehouseDialog({ onClose }: { onClose: () => void }) {
   const [form, setForm] = useState({
     name: "",
     code: "",
-    description: "",
-    allow_negative_stock: false,
-    is_default: false,
   });
 
   const mutation = api.inventory.warehousesV2.create.useMutation({
@@ -141,47 +136,13 @@ function CreateWarehouseDialog({ onClose }: { onClose: () => void }) {
               />
             </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium mb-1.5">Description</label>
-            <textarea
-              rows={2}
-              placeholder="Optional description..."
-              value={form.description}
-              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-              className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/50 resize-none"
-            />
-          </div>
-          <div className="flex gap-6">
-            {[
-              { key: "allow_negative_stock" as const, label: "Allow Negative Stock" },
-              { key: "is_default" as const, label: "Set as Default" },
-            ].map(({ key, label }) => (
-              <label key={key} className="flex items-center gap-2.5 cursor-pointer">
-                <div
-                  onClick={() => setForm((f) => ({ ...f, [key]: !f[key] }))}
-                  className={cn(
-                    "w-10 h-5 rounded-full transition-colors relative",
-                    form[key] ? "bg-brand-500" : "bg-muted"
-                  )}
-                >
-                  <div
-                    className={cn(
-                      "absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform",
-                      form[key] ? "translate-x-5" : "translate-x-0.5"
-                    )}
-                  />
-                </div>
-                <span className="text-sm font-medium">{label}</span>
-              </label>
-            ))}
-          </div>
         </div>
         <div className="px-6 pb-6 flex gap-3">
           <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-lg border border-border text-sm font-medium hover:bg-muted">
             Cancel
           </button>
           <button
-            onClick={() => mutation.mutate({ ...form, description: form.description || undefined })}
+            onClick={() => mutation.mutate({ name: form.name, code: form.code })}
             disabled={mutation.isPending || !form.name || !form.code}
             className="flex-1 flex items-center justify-center gap-1.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white px-4 py-2.5 rounded-lg text-sm font-medium"
           >
@@ -257,14 +218,9 @@ export default function WarehousesPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="font-semibold">{wh.name}</p>
-                        {wh.is_default && (
-                          <span className="text-xs px-2 py-0.5 bg-brand-500/10 text-brand-500 rounded-full font-medium">
-                            Default
-                          </span>
-                        )}
-                        {wh.allow_negative_stock && (
-                          <span className="text-xs px-2 py-0.5 bg-amber-500/10 text-amber-600 rounded-full font-medium">
-                            Neg. Stock
+                        {!wh.is_active && (
+                          <span className="text-xs px-2 py-0.5 bg-muted text-muted-foreground rounded-full font-medium">
+                            Inactive
                           </span>
                         )}
                       </div>

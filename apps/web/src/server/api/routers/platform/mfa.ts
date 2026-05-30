@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from "@/server/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
@@ -19,7 +18,7 @@ try {
 
 function generateTotpSecret(userEmail: string, orgName: string) {
   if (!speakeasy) {
-    const fakeSecret = crypto.randomBytes(20).toString("base32").slice(0, 32);
+    const fakeSecret = crypto.randomBytes(20).toString("base32" as BufferEncoding).slice(0, 32);
     return {
       secret: fakeSecret,
       otpauth_url: `otpauth://totp/${encodeURIComponent(orgName)}:${encodeURIComponent(userEmail)}?secret=${fakeSecret}&issuer=${encodeURIComponent(orgName)}`,

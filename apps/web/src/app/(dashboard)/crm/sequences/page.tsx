@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { useState } from "react";
 import Link from "next/link";
@@ -168,7 +166,7 @@ export default function SequencesPage() {
   };
 
   const active = sequences?.filter((s) => s.status === "active").length ?? 0;
-  const totalEnrolled = sequences?.reduce((sum, s) => sum + s.enrolled_count, 0) ?? 0;
+  const totalEnrolled = sequences?.reduce((sum, s) => sum + (s._count?.enrollments ?? 0), 0) ?? 0;
 
   return (
     <div className="space-y-6">
@@ -268,11 +266,11 @@ export default function SequencesPage() {
                     <p className="text-xs text-muted-foreground">Steps</p>
                   </div>
                   <div>
-                    <p className="text-lg font-bold text-brand-500">{seq.enrolled_count}</p>
+                    <p className="text-lg font-bold text-brand-500">{seq._count?.enrollments ?? 0}</p>
                     <p className="text-xs text-muted-foreground">Enrolled</p>
                   </div>
                   <div>
-                    <p className="text-lg font-bold text-green-500">{seq.completed_count}</p>
+                    <p className="text-lg font-bold text-green-500">0</p>
                     <p className="text-xs text-muted-foreground">Completed</p>
                   </div>
                 </div>

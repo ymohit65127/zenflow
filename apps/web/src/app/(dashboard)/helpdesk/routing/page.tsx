@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { useState } from 'react';
@@ -54,7 +53,7 @@ function RuleDialog({ open, onClose, editingId }: { open: boolean; onClose: () =
           <h2 className="text-lg font-semibold">{editingId ? 'Edit Rule' : 'New Routing Rule'}</h2>
           <button onClick={onClose}><X className="w-5 h-5" /></button>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); const payload = { ...form, conditions: form.conditions.map((c) => ({ ...c, value: c.value })), actions: form.actions.map((a) => ({ ...a, value: a.value })) }; if (editingId) updateMutation.mutate({ id: editingId, ...payload }); else createMutation.mutate(payload as never); }} className="p-6 space-y-5">
+        <form onSubmit={(e) => { e.preventDefault(); const payload = { ...form, conditions: form.conditions.map((c) => ({ ...c, value: c.value })), actions: form.actions.map((a) => ({ ...a, value: a.value })) }; if (editingId) updateMutation.mutate({ id: editingId, ...payload } as never); else createMutation.mutate(payload as never); }} className="p-6 space-y-5">
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2"><label className="block text-sm font-medium mb-1.5">Rule Name *</label>
               <input required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
@@ -190,7 +189,7 @@ export default function RoutingPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <span className="text-xs text-muted-foreground">{rule.match_count} matches</span>
+                    <span className="text-xs text-muted-foreground">{(rule as unknown as { match_count?: number }).match_count ?? 0} matches</span>
                     <button onClick={() => toggleMutation.mutate({ id: rule.id, is_active: !rule.is_active })} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
                       {rule.is_active ? <ToggleRight className="w-4 h-4 text-green-500" /> : <ToggleLeft className="w-4 h-4" />}
                     </button>

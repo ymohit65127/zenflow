@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/trpc/react";
@@ -251,7 +249,7 @@ try {
 
     const editor = useEditor({
       extensions: [
-        StarterKit.configure({ history: false }),
+        StarterKit.configure({}),
         TaskList,
         TaskItem.configure({ nested: true }),
         TextAlign.configure({ types: ["heading", "paragraph"] }),

@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { useState } from 'react';
@@ -12,8 +11,8 @@ type PolicyForm = {
   name: string;
   description: string;
   is_default: boolean;
-  first_response_hours: { low: number; medium: number; high: number; urgent: number };
-  resolution_hours: { low: number; medium: number; high: number; urgent: number };
+  first_response_hours: number;
+  resolution_hours: number;
   is_active: boolean;
 };
 
@@ -21,8 +20,8 @@ const defaultPolicy: PolicyForm = {
   name: '',
   description: '',
   is_default: false,
-  first_response_hours: { low: 8, medium: 4, high: 2, urgent: 1 },
-  resolution_hours: { low: 72, medium: 24, high: 8, urgent: 4 },
+  first_response_hours: 4,
+  resolution_hours: 24,
   is_active: true,
 };
 
@@ -49,11 +48,10 @@ function PolicyDialog({ open, onClose, editingId }: { open: boolean; onClose: ()
   };
 
   const isPending = createMutation.isPending || updateMutation.isPending;
-  const priorities = ['low', 'medium', 'high', 'urgent'] as const;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-card border border-border rounded-2xl w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-card border border-border rounded-2xl w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card">
           <h2 className="text-lg font-semibold">{editingId ? 'Edit SLA Policy' : 'New SLA Policy'}</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted"><X className="w-5 h-5" /></button>
@@ -73,31 +71,18 @@ function PolicyDialog({ open, onClose, editingId }: { open: boolean; onClose: ()
             </div>
           </div>
 
-          <div className="space-y-4">
-            <h3 className="font-medium text-sm">First Response Hours (per priority)</h3>
-            <div className="grid grid-cols-4 gap-3">
-              {priorities.map((p) => (
-                <div key={p}>
-                  <label className="block text-xs text-muted-foreground mb-1 capitalize">{p}</label>
-                  <input type="number" min="0.25" step="0.25" value={form.first_response_hours[p]}
-                    onChange={(e) => setForm((f) => ({ ...f, first_response_hours: { ...f.first_response_hours, [p]: parseFloat(e.target.value) } }))}
-                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50" />
-                </div>
-              ))}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1.5">First Response Hours</label>
+              <input type="number" min="0.25" step="0.25" value={form.first_response_hours}
+                onChange={(e) => setForm((f) => ({ ...f, first_response_hours: parseFloat(e.target.value) || 4 }))}
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50" />
             </div>
-          </div>
-
-          <div className="space-y-4">
-            <h3 className="font-medium text-sm">Resolution Hours (per priority)</h3>
-            <div className="grid grid-cols-4 gap-3">
-              {priorities.map((p) => (
-                <div key={p}>
-                  <label className="block text-xs text-muted-foreground mb-1 capitalize">{p}</label>
-                  <input type="number" min="0.25" step="0.25" value={form.resolution_hours[p]}
-                    onChange={(e) => setForm((f) => ({ ...f, resolution_hours: { ...f.resolution_hours, [p]: parseFloat(e.target.value) } }))}
-                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50" />
-                </div>
-              ))}
+            <div>
+              <label className="block text-sm font-medium mb-1.5">Resolution Hours</label>
+              <input type="number" min="0.25" step="0.25" value={form.resolution_hours}
+                onChange={(e) => setForm((f) => ({ ...f, resolution_hours: parseFloat(e.target.value) || 24 }))}
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50" />
             </div>
           </div>
 
@@ -174,8 +159,8 @@ export default function SlaPage() {
       ) : (
         <div className="space-y-3">
           {policies.map((policy) => {
-            const frHours = policy.first_response_hours as Record<string, number>;
-            const resHours = policy.resolution_hours as Record<string, number>;
+            const frHours = Number(policy.first_response_hours);
+            const resHours = Number(policy.resolution_hours);
             return (
               <div key={policy.id} className="bg-card border border-border rounded-2xl p-5">
                 <div className="flex items-start justify-between gap-4">
@@ -210,26 +195,12 @@ export default function SlaPage() {
 
                 <div className="mt-4 grid grid-cols-2 gap-6">
                   <div>
-                    <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wide">First Response</p>
-                    <div className="grid grid-cols-4 gap-2">
-                      {(['low', 'medium', 'high', 'urgent'] as const).map((p) => (
-                        <div key={p} className="text-center">
-                          <p className="text-xs text-muted-foreground capitalize">{p}</p>
-                          <p className="font-semibold text-sm">{frHours[p] ?? '—'}h</p>
-                        </div>
-                      ))}
-                    </div>
+                    <p className="text-xs text-muted-foreground mb-1 font-medium uppercase tracking-wide">First Response</p>
+                    <p className="font-semibold text-sm">{frHours}h</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wide">Resolution</p>
-                    <div className="grid grid-cols-4 gap-2">
-                      {(['low', 'medium', 'high', 'urgent'] as const).map((p) => (
-                        <div key={p} className="text-center">
-                          <p className="text-xs text-muted-foreground capitalize">{p}</p>
-                          <p className="font-semibold text-sm">{resHours[p] ?? '—'}h</p>
-                        </div>
-                      ))}
-                    </div>
+                    <p className="text-xs text-muted-foreground mb-1 font-medium uppercase tracking-wide">Resolution</p>
+                    <p className="font-semibold text-sm">{resHours}h</p>
                   </div>
                 </div>
               </div>
@@ -258,7 +229,7 @@ export default function SlaPage() {
                   <p className="font-medium">{bh.name}</p>
                   <p className="text-sm text-muted-foreground">{bh.timezone}</p>
                 </div>
-                {!bh.is_active && <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">Inactive</span>}
+                {(bh as unknown as { is_active?: boolean }).is_active === false && <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">Inactive</span>}
               </div>
             ))}
           </div>

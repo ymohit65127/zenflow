@@ -1,6 +1,6 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from "@/server/trpc";
 import { z } from "zod";
+import { Prisma } from "@zenflow/db";
 
 // Uses existing CustomField model:
 // id, organization_id, module, entity_type, label, field_key, field_type(enum), options(Json), is_required, sort_order, created_at
@@ -77,7 +77,7 @@ export const customFieldsRouter = createTRPCRouter({
           label: input.label,
           field_key,
           field_type: input.field_type as any,
-          options: input.options ?? null,
+          options: input.options !== undefined ? input.options as Prisma.InputJsonValue : Prisma.JsonNull,
           is_required: input.is_required,
           sort_order: input.sort_order,
         },

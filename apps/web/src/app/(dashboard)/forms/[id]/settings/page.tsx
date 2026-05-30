@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -332,9 +331,9 @@ function ApprovalsTab({ formId }: { formId: string }) {
               </span>
               <div className="flex-1">
                 <p className="text-sm font-medium capitalize">{String(step.approver_type)}</p>
-                {step.approver_id && <p className="text-xs text-muted-foreground">{String(step.approver_id)}</p>}
-                {step.approver_role && <p className="text-xs text-muted-foreground">Role: {String(step.approver_role)}</p>}
-                {step.notification_email && <p className="text-xs text-muted-foreground">{String(step.notification_email)}</p>}
+                {step.approver_id != null && <p className="text-xs text-muted-foreground">{String(step.approver_id)}</p>}
+                {step.approver_role != null && <p className="text-xs text-muted-foreground">Role: {String(step.approver_role)}</p>}
+                {step.notification_email != null && <p className="text-xs text-muted-foreground">{String(step.notification_email)}</p>}
               </div>
               <button
                 onClick={() => deleteStep.mutate({ id: step.id as string })}

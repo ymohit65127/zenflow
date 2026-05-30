@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -8,7 +7,7 @@ async function generateAdjNumber(
   orgId: string
 ): Promise<string> {
   const last = await prisma.invStockAdjustment.findFirst({
-    where: { org_id: orgId, adjustment_number: { startsWith: 'ADJ-' } },
+    where: { organization_id: orgId, adjustment_number: { startsWith: 'ADJ-' } },
     orderBy: { created_at: 'desc' },
     select: { adjustment_number: true },
   });
@@ -18,22 +17,11 @@ async function generateAdjNumber(
   return `ADJ-${String(num + 1).padStart(5, '0')}`;
 }
 
-const ADJUSTMENT_REASON = z.enum([
-  'damaged',
-  'lost',
-  'found',
-  'correction',
-  'audit',
-  'expired',
-  'sample',
-  'other',
-]);
-
 export const adjustmentsRouter = createTRPCRouter({
   list: protectedProcedure
     .input(
       z.object({
-        status: z.enum(['draft', 'posted']).optional(),
+        status: z.enum(['draft', 'approved', 'posted', 'cancelled']).optional(),
         warehouse_id: z.string().optional(),
         limit: z.number().min(1).max(100).default(25),
         offset: z.number().min(0).default(0),
@@ -44,12 +32,11 @@ export const adjustmentsRouter = createTRPCRouter({
       const [items, total] = await Promise.all([
         ctx.prisma.invStockAdjustment.findMany({
           where: {
-            org_id: orgId,
+            organization_id: orgId,
             ...(input.status ? { status: input.status } : {}),
             ...(input.warehouse_id ? { warehouse_id: input.warehouse_id } : {}),
           },
           include: {
-            warehouse: { select: { id: true, name: true, code: true } },
             _count: { select: { lines: true } },
           },
           take: input.limit,
@@ -58,7 +45,7 @@ export const adjustmentsRouter = createTRPCRouter({
         }),
         ctx.prisma.invStockAdjustment.count({
           where: {
-            org_id: orgId,
+            organization_id: orgId,
             ...(input.status ? { status: input.status } : {}),
           },
         }),
@@ -71,13 +58,11 @@ export const adjustmentsRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const adj = await ctx.prisma.invStockAdjustment.findFirst({
-        where: { id: input.id, org_id: orgId },
+        where: { id: input.id, organization_id: orgId },
         include: {
-          warehouse: true,
           lines: {
             include: {
               product: { select: { id: true, name: true, sku: true, unit_of_measure: true } },
-              location: { select: { id: true, name: true, code: true } },
             },
           },
         },
@@ -90,19 +75,16 @@ export const adjustmentsRouter = createTRPCRouter({
     .input(
       z.object({
         warehouse_id: z.string(),
-        adjustment_date: z.string(),
-        reason: ADJUSTMENT_REASON.default('correction'),
+        reason: z.enum(['count_discrepancy', 'damage', 'expiry', 'theft', 'other']).default('count_discrepancy'),
         notes: z.string().optional(),
         lines: z.array(
           z.object({
             product_id: z.string(),
             variant_id: z.string().optional(),
-            location_id: z.string().optional(),
-            lot_id: z.string().optional(),
-            quantity_before: z.number(),
-            quantity_after: z.number(),
+            qty_before: z.number(),
+            qty_after: z.number(),
             unit_cost: z.number().min(0).default(0),
-            reason_note: z.string().optional(),
+            notes: z.string().optional(),
           })
         ).min(1),
       })
@@ -112,27 +94,23 @@ export const adjustmentsRouter = createTRPCRouter({
       const adjNumber = await generateAdjNumber(ctx.prisma, orgId);
 
       const lineData = input.lines.map((line) => {
-        const change = line.quantity_after - line.quantity_before;
+        const diff = line.qty_after - line.qty_before;
         return {
           product_id: line.product_id,
           variant_id: line.variant_id ?? null,
-          location_id: line.location_id ?? null,
-          lot_id: line.lot_id ?? null,
-          quantity_before: line.quantity_before,
-          quantity_after: line.quantity_after,
-          quantity_change: change,
+          qty_before: line.qty_before,
+          qty_after: line.qty_after,
+          qty_diff: diff,
           unit_cost: line.unit_cost,
-          value_change: change * line.unit_cost,
-          reason_note: line.reason_note ?? null,
+          notes: line.notes ?? null,
         };
       });
 
       return ctx.prisma.invStockAdjustment.create({
         data: {
-          org_id: orgId,
+          organization_id: orgId,
           adjustment_number: adjNumber,
           warehouse_id: input.warehouse_id,
-          adjustment_date: new Date(input.adjustment_date),
           reason: input.reason,
           notes: input.notes ?? null,
           status: 'draft',
@@ -141,7 +119,6 @@ export const adjustmentsRouter = createTRPCRouter({
         },
         include: {
           lines: { include: { product: { select: { name: true, sku: true } } } },
-          warehouse: true,
         },
       });
     }),
@@ -151,7 +128,7 @@ export const adjustmentsRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const adj = await ctx.prisma.invStockAdjustment.findFirst({
-        where: { id: input.id, org_id: orgId },
+        where: { id: input.id, organization_id: orgId },
         include: { lines: true },
       });
       if (!adj) throw new TRPCError({ code: 'NOT_FOUND', message: 'Adjustment not found' });
@@ -163,58 +140,51 @@ export const adjustmentsRouter = createTRPCRouter({
 
       await ctx.prisma.$transaction(async (tx) => {
         for (const line of adj.lines) {
-          const change = Number(line.quantity_change);
+          const change = Number(line.qty_diff);
           if (change === 0) continue;
 
           const isIncrease = change > 0;
-          const locationId = line.location_id ?? null;
 
           await tx.invStockLevel.upsert({
             where: {
               product_id_variant_id_warehouse_id_location_id: {
                 product_id: line.product_id,
-                variant_id: line.variant_id ?? null,
+                variant_id: (line.variant_id ?? null) as unknown as string,
                 warehouse_id: adj.warehouse_id,
-                location_id: locationId,
+                location_id: null as unknown as string,
               },
             },
             create: {
-              org_id: orgId,
+              organization_id: orgId,
               product_id: line.product_id,
               variant_id: line.variant_id ?? null,
               warehouse_id: adj.warehouse_id,
-              location_id: locationId,
-              quantity_on_hand: change,
-              average_cost: Number(line.unit_cost),
-              total_value: change * Number(line.unit_cost),
-              last_movement_at: new Date(),
+              location_id: null,
+              quantity: change,
+              avg_cost: Number(line.unit_cost),
             },
             update: {
-              quantity_on_hand: { increment: change },
-              last_movement_at: new Date(),
+              quantity: { increment: change },
             },
           });
 
           await tx.invStockMovement.create({
             data: {
-              org_id: orgId,
+              organization_id: orgId,
               movement_type: isIncrease ? 'adjustment_in' : 'adjustment_out',
               reference_type: 'stock_adjustment',
               reference_id: input.id,
               product_id: line.product_id,
               variant_id: line.variant_id ?? null,
               warehouse_id: adj.warehouse_id,
-              to_location_id: locationId,
               quantity: Math.abs(change),
               unit_cost: Number(line.unit_cost),
               total_cost: Math.abs(change) * Number(line.unit_cost),
-              running_stock: Number(line.quantity_after),
-              created_by: ctx.session.user.id,
-              notes: line.reason_note ?? null,
+              notes: line.notes ?? null,
             },
           });
 
-          totalValueChange += Number(line.value_change);
+          totalValueChange += Number(line.qty_diff) * Number(line.unit_cost);
         }
 
         await tx.invStockAdjustment.update({
@@ -222,8 +192,7 @@ export const adjustmentsRouter = createTRPCRouter({
           data: {
             status: 'posted',
             posted_at: new Date(),
-            posted_by: ctx.session.user.id,
-            total_value_change: totalValueChange,
+            approved_by: ctx.session.user.id,
           },
         });
       });
@@ -236,7 +205,7 @@ export const adjustmentsRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const adj = await ctx.prisma.invStockAdjustment.findFirst({
-        where: { id: input.id, org_id: orgId },
+        where: { id: input.id, organization_id: orgId },
       });
       if (!adj) throw new TRPCError({ code: 'NOT_FOUND', message: 'Adjustment not found' });
       if (adj.status !== 'draft') {

@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { use, useState, useRef, useCallback } from 'react';
@@ -82,7 +81,7 @@ function WidgetCard({ item, onRemove }: { item: GridItem; onRemove: () => void }
               <table className="w-full text-xs text-left">
                 <thead>
                   <tr className="border-b border-gray-100">
-                    {runQuery.data.rows[0] && Object.keys(runQuery.data.rows[0] as object).map((col) => (
+                    {!!runQuery.data.rows[0] && Object.keys(runQuery.data.rows[0] as object).map((col) => (
                       <th key={col} className="px-2 py-1 text-gray-500 font-medium">{col}</th>
                     ))}
                   </tr>

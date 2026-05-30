@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { useRef, useMemo } from 'react';
@@ -368,7 +367,8 @@ export function GanttChart({
               const mx = daysBetween(projectStart, m.due_date) * DAY_WIDTH;
               const my = HEADER_HEIGHT - 8;
               return (
-                <g key={m.id} title={m.name}>
+                <g key={m.id}>
+                  <title>{m.name}</title>
                   <polygon
                     points={`${mx},${my - 8} ${mx + 8},${my} ${mx},${my + 8} ${mx - 8},${my}`}
                     fill={m.color}

@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { useState } from 'react';
@@ -24,9 +23,9 @@ function NewPeriodDialog({ onClose }: { onClose: () => void }) {
     name: `Payroll ${MONTHS[now.getMonth()]} ${now.getFullYear()}`,
     year: now.getFullYear(),
     month: now.getMonth() + 1,
-    start_date: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0],
-    end_date: new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0],
-    payment_date: new Date(now.getFullYear(), now.getMonth() + 1, 5).toISOString().split('T')[0],
+    start_date: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0] ?? '',
+    end_date: new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0] ?? '',
+    payment_date: new Date(now.getFullYear(), now.getMonth() + 1, 5).toISOString().split('T')[0] ?? '',
     period_type: 'monthly' as const,
   });
 

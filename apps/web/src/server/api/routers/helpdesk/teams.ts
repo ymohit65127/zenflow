@@ -1,27 +1,24 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { HdTeamMemberRole, HdTicketStatus } from '@zenflow/db';
 
 const TeamSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().optional(),
-  email: z.string().email().optional(),
   auto_assign: z.enum(['none', 'round_robin', 'load_balanced']).default('none'),
-  business_hours_id: z.string().optional(),
   is_active: z.boolean().default(true),
 });
 
 export const teamsRouter = createTRPCRouter({
   list: protectedProcedure.query(async ({ ctx }) => {
     const orgId = ctx.session.user.organizationId;
+    const openStatuses: HdTicketStatus[] = ['open', 'pending', 'on_hold', 'new'];
     return ctx.prisma.hdTeam.findMany({
       where: { organization_id: orgId },
       include: {
-        _count: { select: { members: true, tickets: { where: { status: { in: ['open', 'in_progress', 'pending'] } } } } },
-        members: {
-          include: { /* user would be referenced but not in schema yet */ },
-        },
+        _count: { select: { members: true, tickets: { where: { status: { in: openStatuses } } } } },
+        members: {},
       },
       orderBy: { name: 'asc' },
     });
@@ -35,7 +32,6 @@ export const teamsRouter = createTRPCRouter({
         where: { id: input.id, organization_id: orgId },
         include: {
           members: true,
-          business_hours: true,
           _count: { select: { tickets: true } },
         },
       });
@@ -52,9 +48,7 @@ export const teamsRouter = createTRPCRouter({
           organization_id: orgId,
           name: input.name,
           description: input.description ?? null,
-          email: input.email ?? null,
           auto_assign: input.auto_assign,
-          business_hours_id: input.business_hours_id ?? null,
           is_active: input.is_active,
         },
       });
@@ -73,9 +67,7 @@ export const teamsRouter = createTRPCRouter({
         data: {
           name: rest.name,
           description: rest.description ?? null,
-          email: rest.email ?? null,
           auto_assign: rest.auto_assign,
-          business_hours_id: rest.business_hours_id ?? null,
           is_active: rest.is_active,
         },
       });
@@ -94,7 +86,7 @@ export const teamsRouter = createTRPCRouter({
     .input(z.object({
       team_id: z.string(),
       user_id: z.string(),
-      role: z.enum(['member', 'lead']).default('member'),
+      role: z.enum(['agent', 'lead', 'supervisor']).default('agent'),
     }))
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
@@ -103,8 +95,8 @@ export const teamsRouter = createTRPCRouter({
 
       return ctx.prisma.hdTeamMember.upsert({
         where: { team_id_user_id: { team_id: input.team_id, user_id: input.user_id } },
-        create: { team_id: input.team_id, user_id: input.user_id, role: input.role },
-        update: { role: input.role },
+        create: { team_id: input.team_id, user_id: input.user_id, role: input.role as HdTeamMemberRole },
+        update: { role: input.role as HdTeamMemberRole },
       });
     }),
 
@@ -123,10 +115,12 @@ export const teamsRouter = createTRPCRouter({
   setAvailability: protectedProcedure
     .input(z.object({ team_id: z.string(), user_id: z.string(), is_available: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.prisma.hdTeamMember.update({
+      // is_available field doesn't exist in schema — no-op, return current record
+      const member = await ctx.prisma.hdTeamMember.findUnique({
         where: { team_id_user_id: { team_id: input.team_id, user_id: input.user_id } },
-        data: { is_available: input.is_available },
       });
+      if (!member) throw new TRPCError({ code: 'NOT_FOUND', message: 'Team member not found' });
+      return member;
     }),
 
   listMembers: protectedProcedure

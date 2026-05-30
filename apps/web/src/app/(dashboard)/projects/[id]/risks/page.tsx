@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { use, useState } from 'react';
@@ -25,7 +24,6 @@ const RISK_CATEGORY_LABELS: Record<string, string> = {
   external: 'External',
   schedule: 'Schedule',
   budget: 'Budget',
-  quality: 'Quality',
   other: 'Other',
 };
 
@@ -46,10 +44,10 @@ export default function RisksPage({ params }: { params: Promise<{ id: string }> 
   const [form, setForm] = useState({
     title: '',
     description: '',
-    category: 'other' as 'technical' | 'resource' | 'external' | 'schedule' | 'budget' | 'quality' | 'other',
+    category: 'other' as 'technical' | 'resource' | 'external' | 'schedule' | 'budget' | 'other',
     probability: 'medium' as 'low' | 'medium' | 'high',
     impact: 'medium' as 'low' | 'medium' | 'high',
-    status: 'identified' as 'identified' | 'monitoring' | 'mitigated' | 'accepted' | 'closed',
+    status: 'identified' as 'identified' | 'mitigated' | 'accepted' | 'closed',
     mitigationPlan: '',
     contingencyPlan: '',
   });
@@ -86,19 +84,22 @@ export default function RisksPage({ params }: { params: Promise<{ id: string }> 
   });
 
   function resetForm() {
-    setForm({ title: '', description: '', category: 'other', probability: 'medium', impact: 'medium', status: 'identified', mitigationPlan: '', contingencyPlan: '' });
+    setForm({ title: '', description: '', category: 'other', probability: 'medium', impact: 'medium', status: 'identified', mitigationPlan: '', contingencyPlan: '' } as typeof form);
   }
 
   function startEdit(risk: NonNullable<typeof risks>[0]) {
+    const safeStatus = (['identified', 'mitigated', 'accepted', 'closed'] as const).includes(risk.status as 'identified' | 'mitigated' | 'accepted' | 'closed')
+      ? risk.status as typeof form.status
+      : 'identified' as typeof form.status;
     setForm({
       title: risk.title,
       description: risk.description ?? '',
-      category: risk.category as typeof form.category,
+      category: (risk.category as typeof form.category) ?? 'other',
       probability: risk.probability as typeof form.probability,
       impact: risk.impact as typeof form.impact,
-      status: risk.status as typeof form.status,
+      status: safeStatus,
       mitigationPlan: risk.mitigation_plan ?? '',
-      contingencyPlan: risk.contingency_plan ?? '',
+      contingencyPlan: '',
     });
     setEditId(risk.id);
     setShowForm(true);
@@ -246,7 +247,6 @@ export default function RisksPage({ params }: { params: Promise<{ id: string }> 
                     <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as typeof form.status })}
                       className="w-full text-sm bg-background border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/50">
                       <option value="identified">Identified</option>
-                      <option value="monitoring">Monitoring</option>
                       <option value="mitigated">Mitigated</option>
                       <option value="accepted">Accepted</option>
                       <option value="closed">Closed</option>

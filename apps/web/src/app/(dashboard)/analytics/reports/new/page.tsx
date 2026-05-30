@@ -1,4 +1,3 @@
-// @ts-nocheck
 ﻿'use client';
 
 import { useState } from 'react';
@@ -119,7 +118,7 @@ export default function NewReportPage() {
       data_source: {
         module: dataSource,
         dimensions: selectedDimensions.map((f) => ({ field: f })),
-        measures: selectedMeasures,
+        measures: selectedMeasures.map((m) => ({ field: m.field, func: m.aggregation })),
         filters: [],
         date_filter: { field: dateField, from: dateFrom, to: dateTo },
         limit: 100,
@@ -324,8 +323,8 @@ export default function NewReportPage() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-gray-50">
-                      {previewResult.data.rows[0] &&
-                        Object.keys(previewResult.data.rows[0] as object).map((col) => (
+                      {!!previewResult.data.rows[0] &&
+                        Object.keys(previewResult.data.rows[0] as Record<string, unknown>).map((col) => (
                           <th key={col} className="px-3 py-2 text-left font-medium text-gray-600">{col}</th>
                         ))}
                     </tr>

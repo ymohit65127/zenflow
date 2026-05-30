@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -6,19 +5,19 @@ import { TRPCError } from '@trpc/server';
 // Cycle detection using DFS
 function wouldCreateCycle(
   taskId: string,
-  dependsOnTaskId: string,
-  allDependencies: Array<{ task_id: string; depends_on_task_id: string }>
+  dependsOnId: string,
+  allDependencies: Array<{ task_id: string; depends_on_id: string }>
 ): boolean {
   const adj = new Map<string, Set<string>>();
   for (const dep of allDependencies) {
     if (!adj.has(dep.task_id)) adj.set(dep.task_id, new Set());
-    adj.get(dep.task_id)!.add(dep.depends_on_task_id);
+    adj.get(dep.task_id)!.add(dep.depends_on_id);
   }
   // Add proposed edge
   if (!adj.has(taskId)) adj.set(taskId, new Set());
-  adj.get(taskId)!.add(dependsOnTaskId);
+  adj.get(taskId)!.add(dependsOnId);
 
-  // DFS from dependsOnTaskId — if we reach taskId, cycle exists
+  // DFS from dependsOnId — if we reach taskId, cycle exists
   const visited = new Set<string>();
   function dfs(current: string): boolean {
     if (current === taskId) return true;
@@ -29,7 +28,7 @@ function wouldCreateCycle(
     }
     return false;
   }
-  return dfs(dependsOnTaskId);
+  return dfs(dependsOnId);
 }
 
 export const taskDepsRouter = createTRPCRouter({
@@ -38,26 +37,42 @@ export const taskDepsRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
       const task = await ctx.prisma.task.findFirst({
-        where: { id: input.taskId, project: { organization_id: orgId }, deleted_at: null },
+        where: { id: input.taskId, organization_id: orgId, deleted_at: null },
       });
       if (!task) throw new TRPCError({ code: 'NOT_FOUND', message: 'Task not found' });
 
-      const [dependencies, blocking] = await Promise.all([
+      const [dependencyRows, blockingRows] = await Promise.all([
         ctx.prisma.taskDependency.findMany({
-          where: { task_id: input.taskId },
-          include: {
-            depends_on: {
-              select: { id: true, title: true, status_id: true },
-            },
-          },
+          where: { task_id: input.taskId, deleted_at: null },
         }),
         ctx.prisma.taskDependency.findMany({
-          where: { depends_on_task_id: input.taskId },
-          include: {
-            task: { select: { id: true, title: true, status_id: true } },
-          },
+          where: { depends_on_id: input.taskId, deleted_at: null },
         }),
       ]);
+
+      // Load related tasks
+      const dependsOnIds = dependencyRows.map((d) => d.depends_on_id);
+      const blockingTaskIds = blockingRows.map((d) => d.task_id);
+      const allIds = [...new Set([...dependsOnIds, ...blockingTaskIds])];
+
+      const relatedTasks = allIds.length > 0
+        ? await ctx.prisma.task.findMany({
+            where: { id: { in: allIds } },
+            select: { id: true, title: true, status: true },
+          })
+        : [];
+
+      const taskById = Object.fromEntries(relatedTasks.map((t) => [t.id, t]));
+
+      const dependencies = dependencyRows.map((d) => ({
+        ...d,
+        depends_on: taskById[d.depends_on_id] ?? null,
+      }));
+
+      const blocking = blockingRows.map((d) => ({
+        ...d,
+        task: taskById[d.task_id] ?? null,
+      }));
 
       return { dependencies, blocking };
     }),
@@ -82,10 +97,10 @@ export const taskDepsRouter = createTRPCRouter({
 
       const [task, dependsOnTask] = await Promise.all([
         ctx.prisma.task.findFirst({
-          where: { id: input.taskId, project: { organization_id: orgId }, deleted_at: null },
+          where: { id: input.taskId, organization_id: orgId, deleted_at: null },
         }),
         ctx.prisma.task.findFirst({
-          where: { id: input.dependsOnTaskId, project: { organization_id: orgId }, deleted_at: null },
+          where: { id: input.dependsOnTaskId, organization_id: orgId, deleted_at: null },
         }),
       ]);
 
@@ -94,8 +109,8 @@ export const taskDepsRouter = createTRPCRouter({
 
       // Fetch all existing dependencies for cycle check
       const allDeps = await ctx.prisma.taskDependency.findMany({
-        where: { task: { project_id: task.project_id } },
-        select: { task_id: true, depends_on_task_id: true },
+        where: { organization_id: orgId, deleted_at: null },
+        select: { task_id: true, depends_on_id: true },
       });
 
       if (wouldCreateCycle(input.taskId, input.dependsOnTaskId, allDeps)) {
@@ -107,31 +122,15 @@ export const taskDepsRouter = createTRPCRouter({
 
       const dep = await ctx.prisma.taskDependency.create({
         data: {
+          organization_id: orgId,
           task_id: input.taskId,
-          depends_on_task_id: input.dependsOnTaskId,
+          depends_on_id: input.dependsOnTaskId,
           dependency_type: input.dependencyType,
           lag_days: input.lagDays,
         },
-        include: {
-          depends_on: { select: { id: true, title: true } },
-        },
       });
 
-      // Mark task as blocked if dependency type is finish_to_start and prerequisite not done
-      if (input.dependencyType === 'finish_to_start') {
-        const prereqStatus = await ctx.prisma.taskStatus.findUnique({
-          where: { id: dependsOnTask.status_id },
-          select: { status_type: true },
-        });
-        if (prereqStatus?.status_type !== 'done') {
-          await ctx.prisma.task.update({
-            where: { id: input.taskId },
-            data: { is_blocked: true },
-          });
-        }
-      }
-
-      return dep;
+      return { ...dep, depends_on: { id: dependsOnTask.id, title: dependsOnTask.title } };
     }),
 
   delete: protectedProcedure
@@ -139,33 +138,11 @@ export const taskDepsRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
       const dep = await ctx.prisma.taskDependency.findFirst({
-        where: { id: input.id, task: { project: { organization_id: orgId } } },
+        where: { id: input.id, organization_id: orgId },
       });
       if (!dep) throw new TRPCError({ code: 'NOT_FOUND', message: 'Dependency not found' });
 
       await ctx.prisma.taskDependency.delete({ where: { id: input.id } });
-
-      // Recalculate is_blocked for the task
-      const remainingBlockingDeps = await ctx.prisma.taskDependency.findMany({
-        where: {
-          task_id: dep.task_id,
-          dependency_type: 'finish_to_start',
-        },
-        include: {
-          depends_on: {
-            include: { status: { select: { status_type: true } } },
-          },
-        },
-      });
-
-      const isStillBlocked = remainingBlockingDeps.some(
-        (d) => d.depends_on.status?.status_type !== 'done'
-      );
-
-      await ctx.prisma.task.update({
-        where: { id: dep.task_id },
-        data: { is_blocked: isStillBlocked },
-      });
 
       return { success: true };
     }),

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -81,8 +80,15 @@ export const reactionsRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const reactions = await ctx.prisma.chatReaction.findMany({
         where: { message_id: input.message_id },
-        include: { user: { select: { id: true, name: true } } },
       });
+
+      // Fetch user info for unique user_ids
+      const userIds = [...new Set(reactions.map((r) => r.user_id))];
+      const users = await ctx.prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, name: true },
+      });
+      const userMap = new Map(users.map((u) => [u.id, u]));
 
       // Group by emoji
       const grouped: Record<string, { count: number; users: { id: string; name: string }[]; hasReacted: boolean }> = {};
@@ -92,7 +98,8 @@ export const reactionsRouter = createTRPCRouter({
           grouped[r.emoji] = { count: 0, users: [], hasReacted: false };
         }
         grouped[r.emoji]!.count += 1;
-        grouped[r.emoji]!.users.push(r.user);
+        const u = userMap.get(r.user_id);
+        if (u) grouped[r.emoji]!.users.push(u);
         if (r.user_id === currentUserId) {
           grouped[r.emoji]!.hasReacted = true;
         }

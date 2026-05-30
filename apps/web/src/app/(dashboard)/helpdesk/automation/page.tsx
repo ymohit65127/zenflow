@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { useState } from 'react';
@@ -8,24 +7,24 @@ import { api } from '@/trpc/react';
 import { cn, timeAgo } from '@/lib/utils';
 import { toast } from 'sonner';
 
-const TRIGGER_EVENTS = ['ticket_created', 'reply_received', 'status_changed', 'assigned', 'idle_n_hours', 'sla_breached', 'resolved'] as const;
+const TRIGGER_EVENTS = ['ticket_created', 'ticket_updated', 'ticket_assigned', 'sla_breached', 'reply_received', 'ticket_resolved', 'ticket_closed'] as const;
 const TRIGGER_LABELS: Record<string, string> = {
   ticket_created: 'Ticket Created',
-  reply_received: 'Reply Received',
-  status_changed: 'Status Changed',
-  assigned: 'Ticket Assigned',
-  idle_n_hours: 'Idle for N Hours',
+  ticket_updated: 'Ticket Updated',
+  ticket_assigned: 'Ticket Assigned',
   sla_breached: 'SLA Breached',
-  resolved: 'Ticket Resolved',
+  reply_received: 'Reply Received',
+  ticket_resolved: 'Ticket Resolved',
+  ticket_closed: 'Ticket Closed',
 };
 
 const ACTION_TYPES = ['close_ticket', 'change_status', 'assign_team', 'assign_agent', 'add_tag', 'send_email', 'notify_agent'];
 
-type Condition = { field: string; operator: string; value: string };
+type Condition = { field: string; operator: "contains" | "is" | "is_not" | "matches" | "starts_with"; value: string };
 type Action = { action: string; value: string };
-type RuleForm = { name: string; trigger_event: typeof TRIGGER_EVENTS[number]; trigger_config: Record<string, unknown>; conditions: Condition[]; actions: Action[]; is_active: boolean };
+type RuleForm = { name: string; trigger_event: typeof TRIGGER_EVENTS[number]; conditions: Condition[]; actions: Action[]; is_active: boolean };
 
-const defaultRule: RuleForm = { name: '', trigger_event: 'ticket_created', trigger_config: {}, conditions: [], actions: [{ action: 'add_tag', value: '' }], is_active: true };
+const defaultRule: RuleForm = { name: '', trigger_event: 'ticket_created', conditions: [], actions: [{ action: 'add_tag', value: '' }], is_active: true };
 
 function AutomationDialog({ open, onClose, editingId }: { open: boolean; onClose: () => void; editingId: string | null }) {
   const [form, setForm] = useState<RuleForm>(defaultRule);
@@ -43,7 +42,7 @@ function AutomationDialog({ open, onClose, editingId }: { open: boolean; onClose
 
   const addCondition = () => setForm((f) => ({ ...f, conditions: [...f.conditions, { field: 'channel', operator: 'is', value: '' }] }));
   const removeCondition = (i: number) => setForm((f) => ({ ...f, conditions: f.conditions.filter((_, idx) => idx !== i) }));
-  const updateCondition = (i: number, k: keyof Condition, v: string) => setForm((f) => ({ ...f, conditions: f.conditions.map((c, idx) => idx === i ? { ...c, [k]: v } : c) }));
+  const updateCondition = (i: number, k: keyof Condition, v: string) => setForm((f) => ({ ...f, conditions: f.conditions.map((c, idx) => idx === i ? { ...c, [k]: v } as Condition : c) }));
   const addAction = () => setForm((f) => ({ ...f, actions: [...f.actions, { action: 'add_tag', value: '' }] }));
   const removeAction = (i: number) => setForm((f) => ({ ...f, actions: f.actions.filter((_, idx) => idx !== i) }));
   const updateAction = (i: number, k: keyof Action, v: string) => setForm((f) => ({ ...f, actions: f.actions.map((a, idx) => idx === i ? { ...a, [k]: v } : a) }));
@@ -55,7 +54,7 @@ function AutomationDialog({ open, onClose, editingId }: { open: boolean; onClose
           <h2 className="text-lg font-semibold">{editingId ? 'Edit Automation' : 'New Automation Rule'}</h2>
           <button onClick={onClose}><X className="w-5 h-5" /></button>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); const payload = { ...form }; if (editingId) updateMutation.mutate({ id: editingId, ...payload }); else createMutation.mutate(payload as never); }} className="p-6 space-y-5">
+        <form onSubmit={(e) => { e.preventDefault(); const { ...payload } = form; if (editingId) updateMutation.mutate({ id: editingId, ...payload }); else createMutation.mutate(payload); }} className="p-6 space-y-5">
           <div><label className="block text-sm font-medium mb-1.5">Rule Name *</label>
             <input required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50" placeholder="Auto-close stale tickets" /></div>
@@ -66,12 +65,6 @@ function AutomationDialog({ open, onClose, editingId }: { open: boolean; onClose
               {TRIGGER_EVENTS.map((e) => <option key={e} value={e}>{TRIGGER_LABELS[e]}</option>)}
             </select></div>
 
-          {form.trigger_event === 'idle_n_hours' && (
-            <div><label className="block text-sm font-medium mb-1.5">Idle Hours</label>
-              <input type="number" min="1" value={String((form.trigger_config['idle_hours'] as number) ?? 48)}
-                onChange={(e) => setForm((f) => ({ ...f, trigger_config: { idle_hours: parseInt(e.target.value, 10) } }))}
-                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50" /></div>
-          )}
 
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -195,9 +188,9 @@ export default function AutomationPage() {
                       <span>→</span>
                       {actions.slice(0, 2).map((a, i) => <span key={i} className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 px-2 py-0.5 rounded">{a.action.replace(/_/g, ' ')}</span>)}
                     </div>
-                    {(rule.run_count > 0 || rule.last_run_at) && (
+                    {(rule.runs_count > 0 || rule.last_run_at) && (
                       <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1"><PlayCircle className="w-3 h-3" /> {rule.run_count} runs</span>
+                        <span className="flex items-center gap-1"><PlayCircle className="w-3 h-3" /> {rule.runs_count} runs</span>
                         {rule.last_run_at && <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Last run {timeAgo(rule.last_run_at)}</span>}
                       </div>
                     )}

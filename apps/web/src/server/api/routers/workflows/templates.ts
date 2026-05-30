@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -16,8 +15,8 @@ export const workflowTemplatesRouter = createTRPCRouter({
         where: {
           is_published: true,
           OR: [
-            { org_id: null },       // global templates
-            { org_id: orgId },      // org-specific templates
+            { organization_id: null },       // global templates
+            { organization_id: orgId },      // org-specific templates
           ],
           ...(input.category ? { category: input.category } : {}),
           ...(input.difficulty ? { difficulty: input.difficulty } : {}),
@@ -42,7 +41,7 @@ export const workflowTemplatesRouter = createTRPCRouter({
         where: {
           id: input.id,
           is_published: true,
-          OR: [{ org_id: null }, { org_id: orgId }],
+          OR: [{ organization_id: null }, { organization_id: orgId }],
         },
       });
       if (!template) throw new TRPCError({ code: 'NOT_FOUND' });
@@ -62,7 +61,7 @@ export const workflowTemplatesRouter = createTRPCRouter({
         where: {
           id: input.templateId,
           is_published: true,
-          OR: [{ org_id: null }, { org_id: orgId }],
+          OR: [{ organization_id: null }, { organization_id: orgId }],
         },
       });
       if (!template) throw new TRPCError({ code: 'NOT_FOUND' });
@@ -73,14 +72,14 @@ export const workflowTemplatesRouter = createTRPCRouter({
       const triggerType = triggerNode?.type.replace('trigger_', '') as 'event' | 'schedule' | 'webhook' | 'manual' | 'api' ?? 'manual';
 
       // Create workflow from template
-      const workflow = await ctx.prisma.workflow.create({
+      const workflow = await ctx.prisma.workflowV2.create({
         data: {
           organization_id: orgId,
           created_by: userId,
           name: input.name,
           description: template.description ?? null,
           trigger_type: triggerType,
-          trigger_config: triggerNode?.config ?? {},
+          trigger_config: (triggerNode?.config ?? {}) as object,
           status: 'draft',
           version: 1,
           nodes: template.nodes as object,
@@ -113,14 +112,14 @@ export const workflowTemplatesRouter = createTRPCRouter({
       const orgId = ctx.session.user.organizationId as string;
       const userId = ctx.session.user.id as string;
 
-      const workflow = await ctx.prisma.workflow.findFirst({
+      const workflow = await ctx.prisma.workflowV2.findFirst({
         where: { id: input.workflowId, organization_id: orgId },
       });
       if (!workflow) throw new TRPCError({ code: 'NOT_FOUND' });
 
       return ctx.prisma.workflowTemplate.create({
         data: {
-          org_id: orgId,
+          organization_id: orgId,
           name: input.name,
           description: input.description ?? null,
           category: input.category,

@@ -1,8 +1,6 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Bookmark, Hash, Lock, MessageSquare, Loader2, ChevronDown } from "lucide-react";
 import { format } from "date-fns";
@@ -126,21 +124,19 @@ export default function BookmarksPage() {
   const [initialized, setInitialized] = useState(false);
 
   const { data, isLoading, isFetching } = api.chat.bookmarks.list.useQuery(
-    { limit: 20, cursor },
-    {
-      onSuccess: (result) => {
-        if (!initialized) {
-          setAllBookmarks(result.bookmarks as unknown as BookmarkEntry[]);
-          setInitialized(true);
-        } else {
-          setAllBookmarks((prev) => [
-            ...prev,
-            ...(result.bookmarks as unknown as BookmarkEntry[]),
-          ]);
-        }
-      },
-    }
+    { limit: 20, cursor }
   );
+
+  useEffect(() => {
+    if (!data) return;
+    const items = data.bookmarks as unknown as BookmarkEntry[];
+    if (!initialized) {
+      setAllBookmarks(items);
+      setInitialized(true);
+    } else {
+      setAllBookmarks((prev) => [...prev, ...items]);
+    }
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const removeMutation = api.chat.bookmarks.remove.useMutation({
     onSuccess: (_, variables) => {

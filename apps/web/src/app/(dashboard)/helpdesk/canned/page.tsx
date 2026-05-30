@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { useState } from 'react';
@@ -8,8 +7,8 @@ import { api } from '@/trpc/react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
-type CannedForm = { name: string; shortcut: string; content: string; category: string; is_shared: boolean };
-const defaultForm: CannedForm = { name: '', shortcut: '', content: '', category: '', is_shared: true };
+type CannedForm = { name: string; shortcut: string; content: string; is_shared: boolean };
+const defaultForm: CannedForm = { name: '', shortcut: '', content: '', is_shared: true };
 
 function CannedDialog({ open, onClose, editingId }: { open: boolean; onClose: () => void; editingId: string | null }) {
   const [form, setForm] = useState<CannedForm>(defaultForm);
@@ -35,15 +34,11 @@ function CannedDialog({ open, onClose, editingId }: { open: boolean; onClose: ()
         <form onSubmit={(e) => { e.preventDefault(); if (editingId) updateMutation.mutate({ id: editingId, ...form }); else createMutation.mutate(form); }} className="p-6 space-y-4">
           <div><label className="block text-sm font-medium mb-1.5">Name *</label>
             <input required value={form.name} onChange={set('name')} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50" placeholder="Thank you for reaching out" /></div>
-          <div className="grid grid-cols-2 gap-4">
-            <div><label className="block text-sm font-medium mb-1.5">Shortcut *</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">/</span>
-                <input required value={form.shortcut} onChange={set('shortcut')} className="w-full bg-background border border-border rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50" placeholder="thanks" />
-              </div></div>
-            <div><label className="block text-sm font-medium mb-1.5">Category</label>
-              <input value={form.category} onChange={set('category')} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50" placeholder="Greetings, Technical…" /></div>
-          </div>
+          <div><label className="block text-sm font-medium mb-1.5">Shortcut *</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">/</span>
+              <input required value={form.shortcut} onChange={set('shortcut')} className="w-full bg-background border border-border rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50" placeholder="thanks" />
+            </div></div>
           <div><label className="block text-sm font-medium mb-1.5">Content *</label>
             <textarea required value={form.content} onChange={set('content')} rows={6} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50 resize-none" placeholder="Write your canned response here…" /></div>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
@@ -76,7 +71,7 @@ export default function CannedPage() {
     onError: (e) => toast.error(e.message),
   });
 
-  const filtered = responses?.filter((r) => !search || r.name.toLowerCase().includes(search.toLowerCase()) || r.shortcut.toLowerCase().includes(search.toLowerCase()));
+  const filtered = responses?.filter((r) => !search || r.name.toLowerCase().includes(search.toLowerCase()) || (r.shortcut ?? '').toLowerCase().includes(search.toLowerCase()));
 
   const openEdit = (id: string) => { setEditingId(id); setDialogOpen(true); };
   const openCreate = () => { setEditingId(null); setDialogOpen(true); };
@@ -125,9 +120,8 @@ export default function CannedPage() {
                   <h3 className="font-semibold">{r.name}</h3>
                   <div className="flex items-center gap-2 mt-1">
                     <span className="flex items-center gap-1 text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded font-mono">
-                      <Hash className="w-3 h-3" />{r.shortcut}
+                      <Hash className="w-3 h-3" />{r.shortcut ?? '—'}
                     </span>
-                    {r.category && <span className="text-xs text-muted-foreground">{r.category}</span>}
                   </div>
                 </div>
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -137,7 +131,7 @@ export default function CannedPage() {
               </div>
               <p className="text-sm text-muted-foreground line-clamp-3 whitespace-pre-wrap">{r.content}</p>
               <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-                <span>{r.usage_count} uses</span>
+                <span></span>
                 {!r.is_shared && <span className="px-2 py-0.5 bg-muted rounded">Private</span>}
               </div>
             </div>

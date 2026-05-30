@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { useState } from "react";
 import { api } from "@/trpc/react";
@@ -16,10 +14,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import {
   Plus,
-  Settings2,
   Trash2,
   Star,
   GitBranch,
@@ -28,7 +24,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-function StageChip({ stage }: { stage: { name: string; color: string; probability: unknown; stage_type: string } }) {
+function StageChip({
+  stage,
+}: {
+  stage: { name: string; color: string; win_probability: unknown; is_closed: boolean; is_won: boolean };
+}) {
+  const label = stage.is_won ? "won" : stage.is_closed ? "lost" : null;
   return (
     <div
       className="px-2.5 py-1 rounded-full text-xs font-medium flex items-center gap-1"
@@ -36,9 +37,9 @@ function StageChip({ stage }: { stage: { name: string; color: string; probabilit
     >
       <span>{stage.name}</span>
       <span className="opacity-70">·</span>
-      <span>{Number(stage.probability)}%</span>
-      {stage.stage_type !== "active" && (
-        <span className="ml-0.5 opacity-60">({stage.stage_type})</span>
+      <span>{Number(stage.win_probability)}%</span>
+      {label && (
+        <span className="ml-0.5 opacity-60">({label})</span>
       )}
     </div>
   );
@@ -48,18 +49,15 @@ function CreatePipelineDialog({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
     name: "",
-    color: "#3B82F6",
-    currency: "USD",
-    winProbabilityEnabled: true,
-    rottingEnabled: false,
-    rottingDays: 14,
+    description: "",
+    is_default: false,
   });
 
   const createMutation = api.crm.pipelines.create.useMutation({
     onSuccess: () => {
       toast.success("Pipeline created with default stages");
       setOpen(false);
-      setForm({ name: "", color: "#3B82F6", currency: "USD", winProbabilityEnabled: true, rottingEnabled: false, rottingDays: 14 });
+      setForm({ name: "", description: "", is_default: false });
       onCreated();
     },
     onError: (err) => toast.error(err.message),
@@ -86,70 +84,26 @@ function CreatePipelineDialog({ onCreated }: { onCreated: () => void }) {
             />
           </div>
           <div>
-            <Label>Color</Label>
-            <div className="flex items-center gap-2">
-              <input
-                type="color"
-                value={form.color}
-                onChange={(e) => setForm({ ...form, color: e.target.value })}
-                className="w-10 h-10 rounded cursor-pointer border border-border"
-              />
-              <Input
-                value={form.color}
-                onChange={(e) => setForm({ ...form, color: e.target.value })}
-                className="font-mono text-sm"
-              />
-            </div>
-          </div>
-          <div>
-            <Label>Currency</Label>
+            <Label>Description</Label>
             <Input
-              value={form.currency}
-              onChange={(e) => setForm({ ...form, currency: e.target.value })}
-              maxLength={3}
-              className="uppercase w-24"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              placeholder="Optional description"
             />
           </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Win Probability</p>
-              <p className="text-xs text-muted-foreground">Track win % per stage</p>
-            </div>
-            <Switch
-              checked={form.winProbabilityEnabled}
-              onCheckedChange={(v) => setForm({ ...form, winProbabilityEnabled: v })}
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Rotting Detection</p>
-              <p className="text-xs text-muted-foreground">Alert on stale deals</p>
-            </div>
-            <Switch
-              checked={form.rottingEnabled}
-              onCheckedChange={(v) => setForm({ ...form, rottingEnabled: v })}
-            />
-          </div>
-          {form.rottingEnabled && (
-            <div>
-              <Label>Rotting after (days)</Label>
-              <Input
-                type="number"
-                min={1}
-                max={365}
-                value={form.rottingDays}
-                onChange={(e) => setForm({ ...form, rottingDays: Number(e.target.value) })}
-                className="w-24"
-              />
-            </div>
-          )}
           <p className="text-xs text-muted-foreground bg-muted rounded-lg p-3">
             6 default stages will be created: Prospecting, Qualification, Proposal, Negotiation, Closed Won, Closed Lost
           </p>
           <Button
             className="w-full bg-brand-500 hover:bg-brand-600 text-white"
             disabled={!form.name || createMutation.isPending}
-            onClick={() => createMutation.mutate(form)}
+            onClick={() =>
+              createMutation.mutate({
+                name: form.name,
+                description: form.description || undefined,
+                is_default: form.is_default,
+              })
+            }
           >
             {createMutation.isPending ? "Creating..." : "Create Pipeline"}
           </Button>
@@ -164,12 +118,12 @@ export default function PipelinesPage() {
   const { data: pipelines, isLoading, refetch } = api.crm.pipelines.list.useQuery();
 
   const deleteMutation = api.crm.pipelines.delete.useMutation({
-    onSuccess: () => { toast.success("Pipeline deleted"); refetch(); },
+    onSuccess: () => { toast.success("Pipeline deleted"); void refetch(); },
     onError: (err) => toast.error(err.message),
   });
 
   const setDefaultMutation = api.crm.pipelines.setDefault.useMutation({
-    onSuccess: () => { toast.success("Default pipeline updated"); refetch(); },
+    onSuccess: () => { toast.success("Default pipeline updated"); void refetch(); },
     onError: (err) => toast.error(err.message),
   });
 
@@ -183,7 +137,7 @@ export default function PipelinesPage() {
           </h1>
           <p className="text-muted-foreground mt-1">Manage your sales pipelines and stages</p>
         </div>
-        <CreatePipelineDialog onCreated={() => refetch()} />
+        <CreatePipelineDialog onCreated={() => void refetch()} />
       </div>
 
       {isLoading ? (
@@ -205,10 +159,6 @@ export default function PipelinesPage() {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div
-                      className="w-3 h-3 rounded-full"
-                      style={{ backgroundColor: pipeline.color }}
-                    />
                     <CardTitle className="text-base">{pipeline.name}</CardTitle>
                     {pipeline.is_default && (
                       <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30 text-xs">
@@ -218,11 +168,6 @@ export default function PipelinesPage() {
                     <Badge variant="outline" className="text-xs">
                       {pipeline._count?.deals ?? 0} deals
                     </Badge>
-                    {pipeline.rotting_enabled && (
-                      <Badge variant="outline" className="text-xs text-orange-600 border-orange-300">
-                        Rotting: {pipeline.rotting_days}d
-                      </Badge>
-                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     {!pipeline.is_default && (
@@ -250,7 +195,9 @@ export default function PipelinesPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => setExpandedPipeline(expandedPipeline === pipeline.id ? null : pipeline.id)}
+                      onClick={() =>
+                        setExpandedPipeline(expandedPipeline === pipeline.id ? null : pipeline.id)
+                      }
                     >
                       {expandedPipeline === pipeline.id ? (
                         <ChevronDown className="w-4 h-4" />
@@ -271,20 +218,9 @@ export default function PipelinesPage() {
                         <StageChip key={stage.id} stage={stage} />
                       ))}
                     </div>
-                    <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
-                      <div className="text-muted-foreground">
-                        Currency: <span className="text-foreground font-medium">{pipeline.currency}</span>
-                      </div>
-                      <div className="text-muted-foreground">
-                        Win Prob:{" "}
-                        <span className="text-foreground font-medium">
-                          {pipeline.win_probability_enabled ? "Enabled" : "Disabled"}
-                        </span>
-                      </div>
-                      <div className="text-muted-foreground">
-                        Stages:{" "}
-                        <span className="text-foreground font-medium">{pipeline.stages?.length ?? 0}</span>
-                      </div>
+                    <div className="mt-4 text-sm text-muted-foreground">
+                      Total stages:{" "}
+                      <span className="text-foreground font-medium">{pipeline.stages?.length ?? 0}</span>
                     </div>
                   </div>
                 </CardContent>

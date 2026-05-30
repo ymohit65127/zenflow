@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { useState } from "react";
 import {
@@ -8,22 +6,18 @@ import {
   Layers,
   Search,
   AlertTriangle,
-  CheckCircle,
-  ShoppingBag,
-  Trash2,
-  RefreshCw,
 } from "lucide-react";
 import { api } from "@/trpc/react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 
-type SerialStatus = "available" | "sold" | "rma" | "scrapped" | "in_transit";
+type SerialStatus = "in_stock" | "sold" | "returned" | "damaged" | "expired";
 const SERIAL_STATUS_COLORS: Record<SerialStatus, string> = {
-  available: "bg-green-500/10 text-green-600",
+  in_stock: "bg-green-500/10 text-green-600",
   sold: "bg-blue-500/10 text-blue-600",
-  rma: "bg-amber-500/10 text-amber-600",
-  scrapped: "bg-red-500/10 text-red-600",
-  in_transit: "bg-cyan-500/10 text-cyan-600",
+  returned: "bg-amber-500/10 text-amber-600",
+  damaged: "bg-red-500/10 text-red-600",
+  expired: "bg-gray-500/10 text-gray-600",
 };
 
 export default function SerialLotsPage() {
@@ -89,8 +83,8 @@ export default function SerialLotsPage() {
               className="w-full pl-9 pr-3 py-2 text-sm bg-card border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/50"
             />
           </div>
-          <div className="flex gap-1">
-            {(["", "available", "sold", "rma", "scrapped", "in_transit"] as const).map((s) => (
+          <div className="flex gap-1 flex-wrap">
+            {(["", "in_stock", "sold", "returned", "damaged", "expired"] as const).map((s) => (
               <button
                 key={s}
                 onClick={() => { setStatusFilter(s as SerialStatus | ""); setPage(0); }}
@@ -99,7 +93,7 @@ export default function SerialLotsPage() {
                   statusFilter === s ? "bg-brand-500 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
                 )}
               >
-                {s === "" ? "All" : s}
+                {s === "" ? "All" : s.replace("_", " ")}
               </button>
             ))}
           </div>
@@ -124,7 +118,7 @@ export default function SerialLotsPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
-                    {["Serial #", "Product", "Status", "Warehouse", "Location", "Expiry", "Purchase Date"].map((h) => (
+                    {["Serial #", "Product", "Status", "Purchased", "Expires", "Notes"].map((h) => (
                       <th key={h} className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -132,7 +126,7 @@ export default function SerialLotsPage() {
                 <tbody className="divide-y divide-border">
                   {serialData?.items.map((s) => {
                     const status = s.status as SerialStatus;
-                    const isExpired = s.expiry_date && new Date(s.expiry_date) < new Date();
+                    const isExpired = s.expires_at && new Date(s.expires_at) < new Date();
                     return (
                       <tr key={s.id} className="hover:bg-muted/20">
                         <td className="px-5 py-3 font-mono text-sm font-semibold">{s.serial_number}</td>
@@ -141,23 +135,22 @@ export default function SerialLotsPage() {
                           <p className="text-xs text-muted-foreground">{s.product.sku}</p>
                         </td>
                         <td className="px-5 py-3">
-                          <span className={cn("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium capitalize", SERIAL_STATUS_COLORS[status])}>
-                            {s.status}
+                          <span className={cn("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium capitalize", SERIAL_STATUS_COLORS[status] ?? "bg-muted text-muted-foreground")}>
+                            {s.status.replace("_", " ")}
                           </span>
                         </td>
-                        <td className="px-5 py-3 text-sm text-muted-foreground">{s.warehouse?.name ?? "—"}</td>
-                        <td className="px-5 py-3 text-sm text-muted-foreground">{s.location?.name ?? "—"}</td>
+                        <td className="px-5 py-3 text-sm text-muted-foreground">
+                          {s.purchased_at ? format(new Date(s.purchased_at), "MMM dd, yyyy") : "—"}
+                        </td>
                         <td className="px-5 py-3 text-sm">
-                          {s.expiry_date ? (
+                          {s.expires_at ? (
                             <span className={cn(isExpired ? "text-red-500 font-medium" : "text-muted-foreground")}>
-                              {format(new Date(s.expiry_date), "MMM dd, yyyy")}
+                              {format(new Date(s.expires_at), "MMM dd, yyyy")}
                               {isExpired && " (Expired)"}
                             </span>
                           ) : "—"}
                         </td>
-                        <td className="px-5 py-3 text-sm text-muted-foreground">
-                          {s.purchase_date ? format(new Date(s.purchase_date), "MMM dd, yyyy") : "—"}
-                        </td>
+                        <td className="px-5 py-3 text-sm text-muted-foreground">{s.notes ?? "—"}</td>
                       </tr>
                     );
                   })}
@@ -182,7 +175,7 @@ export default function SerialLotsPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
-                    {["Lot #", "Product", "Qty Received", "Qty Remaining", "Cost/Unit", "Manufacture", "Expiry", "Supplier Lot"].map((h) => (
+                    {["Lot #", "Product", "Quantity", "Manufactured", "Expiry", "Notes"].map((h) => (
                       <th key={h} className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -202,12 +195,8 @@ export default function SerialLotsPage() {
                           <p className="text-sm font-medium">{lot.product.name}</p>
                           <p className="text-xs text-muted-foreground">{lot.product.sku}</p>
                         </td>
-                        <td className="px-5 py-3 text-sm">{Number(lot.quantity_received)}</td>
                         <td className="px-5 py-3 text-sm font-medium">
-                          {Number(lot.quantity_remaining)}
-                        </td>
-                        <td className="px-5 py-3 text-sm text-muted-foreground">
-                          ₹{Number(lot.cost_per_unit).toFixed(2)}
+                          {Number(lot.quantity)}
                         </td>
                         <td className="px-5 py-3 text-sm text-muted-foreground">
                           {lot.manufacture_date ? format(new Date(lot.manufacture_date), "MMM dd, yyyy") : "—"}
@@ -224,7 +213,7 @@ export default function SerialLotsPage() {
                             </span>
                           ) : "—"}
                         </td>
-                        <td className="px-5 py-3 text-sm text-muted-foreground font-mono">{lot.supplier_lot_number ?? "—"}</td>
+                        <td className="px-5 py-3 text-sm text-muted-foreground">{lot.notes ?? "—"}</td>
                       </tr>
                     );
                   })}

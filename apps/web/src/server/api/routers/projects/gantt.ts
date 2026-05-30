@@ -1,7 +1,7 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { type Prisma } from '@zenflow/db';
 
 interface GanttTaskNode {
   id: string;
@@ -9,7 +9,7 @@ interface GanttTaskNode {
   due_date: Date | null;
   estimate_hours: number;
   dependencies: Array<{
-    depends_on_task_id: string;
+    depends_on_id: string;
     dependency_type: string;
     lag_days: number;
   }>;
@@ -34,8 +34,8 @@ function topologicalSort(tasks: GanttTaskNode[]): string[] {
     if (!inDegree.has(t.id)) inDegree.set(t.id, 0);
     if (!adj.has(t.id)) adj.set(t.id, []);
     for (const dep of t.dependencies) {
-      adj.set(dep.depends_on_task_id, [
-        ...(adj.get(dep.depends_on_task_id) ?? []),
+      adj.set(dep.depends_on_id, [
+        ...(adj.get(dep.depends_on_id) ?? []),
         t.id,
       ]);
       inDegree.set(t.id, (inDegree.get(t.id) ?? 0) + 1);
@@ -78,7 +78,7 @@ function computeCriticalPath(
     let es = task.start_date ?? projectStart;
 
     for (const dep of task.dependencies) {
-      const pred = earlyDates.get(dep.depends_on_task_id);
+      const pred = earlyDates.get(dep.depends_on_id);
       if (!pred) continue;
       let candidateStart: Date;
       if (dep.dependency_type === 'finish_to_start') {
@@ -108,14 +108,14 @@ function computeCriticalPath(
 
     // Find successors
     const successors = tasks.filter((t) =>
-      t.dependencies.some((d) => d.depends_on_task_id === id)
+      t.dependencies.some((d) => d.depends_on_id === id)
     );
 
     let lf = projectEnd;
     for (const succ of successors) {
       const succLate = lateDates.get(succ.id);
       if (!succLate) continue;
-      const dep = succ.dependencies.find((d) => d.depends_on_task_id === id)!;
+      const dep = succ.dependencies.find((d) => d.depends_on_id === id)!;
       let candidateFinish: Date;
       if (dep.dependency_type === 'finish_to_start') {
         candidateFinish = addDays(succLate.ls, -dep.lag_days);
@@ -157,57 +157,67 @@ export const ganttRouter = createTRPCRouter({
 
       const project = await ctx.prisma.project.findFirst({
         where: { id: input.projectId, organization_id: orgId, deleted_at: null },
-        include: {
-          phases: { orderBy: { position: 'asc' } },
-          milestones: { orderBy: { due_date: 'asc' } },
-        },
       });
       if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
 
-      const tasks = await ctx.prisma.task.findMany({
-        where: {
-          project_id: input.projectId,
-          deleted_at: null,
-          ...(input.dateFrom || input.dateTo
-            ? {
-                OR: [
-                  ...(input.dateFrom
-                    ? [{ due_date: { gte: input.dateFrom } }]
-                    : []),
-                  ...(input.dateTo
-                    ? [{ start_date: { lte: input.dateTo } }]
-                    : []),
-                ],
-              }
-            : {}),
-        },
-        include: {
-          dependencies: {
-            select: {
-              id: true,
-              depends_on_task_id: true,
-              dependency_type: true,
-              lag_days: true,
-            },
-          },
-          status: { select: { id: true, name: true, color: true, status_type: true } },
-          assignees: {
-            include: {
-              user: { select: { id: true, name: true, avatar_url: true } },
-            },
-            take: 3,
-          },
-        },
-        orderBy: [{ start_date: 'asc' }, { position: 'asc' }],
+      // Load phases and milestones separately
+      const phases = await ctx.prisma.projectPhase.findMany({
+        where: { project_id: input.projectId, deleted_at: null },
+        orderBy: { position: 'asc' },
       });
+
+      const milestones = await ctx.prisma.projectMilestone.findMany({
+        where: { project_id: input.projectId, deleted_at: null },
+        orderBy: { due_date: 'asc' },
+      });
+
+      const taskWhere: Record<string, unknown> = {
+        project_id: input.projectId,
+        deleted_at: null,
+      };
+      if (input.dateFrom || input.dateTo) {
+        const conditions: Array<Record<string, unknown>> = [];
+        if (input.dateFrom) conditions.push({ due_date: { gte: input.dateFrom } });
+        if (input.dateTo) conditions.push({ started_at: { lte: input.dateTo } });
+        taskWhere['OR'] = conditions;
+      }
+
+      const tasks = await ctx.prisma.task.findMany({
+        where: taskWhere as Prisma.TaskWhereInput,
+        orderBy: [{ started_at: 'asc' }, { position: 'asc' }],
+      });
+
+      // Load dependencies for these tasks
+      const taskIds = tasks.map((t) => t.id);
+      const dependencies = await ctx.prisma.taskDependency.findMany({
+        where: {
+          task_id: { in: taskIds },
+          deleted_at: null,
+        },
+        select: {
+          id: true,
+          task_id: true,
+          depends_on_id: true,
+          dependency_type: true,
+          lag_days: true,
+        },
+      });
+
+      const depsByTask = dependencies.reduce<
+        Record<string, typeof dependencies>
+      >((acc, d) => {
+        if (!acc[d.task_id]) acc[d.task_id] = [];
+        acc[d.task_id]!.push(d);
+        return acc;
+      }, {});
 
       const ganttNodes: GanttTaskNode[] = tasks.map((t) => ({
         id: t.id,
-        start_date: t.start_date,
+        start_date: t.started_at,
         due_date: t.due_date,
-        estimate_hours: Number(t.estimate_hours ?? 8),
-        dependencies: t.dependencies.map((d) => ({
-          depends_on_task_id: d.depends_on_task_id,
+        estimate_hours: Number(t.estimated_hours ?? 8),
+        dependencies: (depsByTask[t.id] ?? []).map((d) => ({
+          depends_on_id: d.depends_on_id,
           dependency_type: d.dependency_type,
           lag_days: d.lag_days,
         })),
@@ -229,26 +239,31 @@ export const ganttRouter = createTRPCRouter({
           id: project.id,
           name: project.name,
           startDate: project.start_date,
-          endDate: project.end_date,
+          endDate: project.due_date,
         },
-        phases: project.phases,
-        milestones: project.milestones,
+        phases,
+        milestones,
         tasks: tasks.map((t) => {
           const cpm = cpmResult?.get(t.id);
+          const taskDeps = depsByTask[t.id] ?? [];
           return {
             id: t.id,
             title: t.title,
             status: t.status,
             priority: t.priority,
-            phase_id: t.phase_id ?? null,
-            start_date: t.start_date ?? null,
+            phase_id: null as string | null,
+            start_date: t.started_at ?? null,
             due_date: t.due_date ?? null,
-            estimate_hours: Number(t.estimate_hours ?? 0),
+            estimate_hours: Number(t.estimated_hours ?? 0),
             actual_hours: Number(t.actual_hours ?? 0),
-            estimate_points: t.estimate_points ?? null,
-            is_blocked: t.is_blocked,
-            assignees: t.assignees,
-            dependencies: t.dependencies,
+            estimate_points: t.story_points ?? null,
+            is_blocked: false,
+            assignees: [] as Array<{ user: { name: string; avatar_url: string | null } }>,
+            dependencies: taskDeps.map((d) => ({
+              depends_on_task_id: d.depends_on_id,
+              dependency_type: d.dependency_type,
+              lag_days: d.lag_days,
+            })),
             // CPM data
             isCritical: cpm?.isCritical ?? false,
             float: cpm?.float ?? null,

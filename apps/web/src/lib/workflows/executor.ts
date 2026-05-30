@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Core workflow execution logic
 // Traverses the workflow graph node by node.
 // For each node type, executes the appropriate action.
@@ -192,11 +191,14 @@ async function executeNodeAction(
         crm_leads: 'crmLead',
       };
       const modelName = tableMap[module];
-      if (modelName && (prisma as Record<string, unknown>)[modelName]) {
-        const found = await (prisma as Record<string, { findFirst: (args: unknown) => Promise<unknown> }>)[modelName].findFirst({
-          where: { ...filter, organization_id: context.org_id, deleted_at: null },
-        });
-        return { output: { [outputVar]: found } };
+      if (modelName) {
+        const prismaAny = prisma as unknown as Record<string, { findFirst: (args: unknown) => Promise<unknown> }>;
+        if (prismaAny[modelName]) {
+          const found = await prismaAny[modelName]!.findFirst({
+            where: { ...filter, organization_id: context.org_id, deleted_at: null },
+          });
+          return { output: { [outputVar]: found } };
+        }
       }
       return { output: { [outputVar]: null } };
     }
@@ -291,7 +293,7 @@ async function executeNode(
 }
 
 export async function executeWorkflowRun(runId: string, prisma: PrismaClient): Promise<void> {
-  const run = await prisma.workflowRun.findUniqueOrThrow({
+  const run = await prisma.workflowV2Run.findUniqueOrThrow({
     where: { id: runId },
     include: { workflow: true },
   });
@@ -302,7 +304,7 @@ export async function executeWorkflowRun(runId: string, prisma: PrismaClient): P
 
   const startNode = nodes.find((n) => n.type.startsWith('trigger_'));
   if (!startNode) {
-    await prisma.workflowRun.update({
+    await prisma.workflowV2Run.update({
       where: { id: runId },
       data: { status: 'failed', error_message: 'No trigger node found', completed_at: new Date() },
     });
@@ -328,7 +330,7 @@ export async function executeWorkflowRun(runId: string, prisma: PrismaClient): P
     await executeNode(startNode, nodes, edges, context, wfConfig, prisma);
 
     const now = new Date();
-    await prisma.workflowRun.update({
+    await prisma.workflowV2Run.update({
       where: { id: runId },
       data: {
         status: 'completed',
@@ -337,7 +339,7 @@ export async function executeWorkflowRun(runId: string, prisma: PrismaClient): P
       },
     });
 
-    await prisma.workflow.update({
+    await prisma.workflowV2.update({
       where: { id: workflow.id },
       data: {
         total_runs: { increment: 1 },
@@ -351,7 +353,7 @@ export async function executeWorkflowRun(runId: string, prisma: PrismaClient): P
       return;
     }
 
-    await prisma.workflowRun.update({
+    await prisma.workflowV2Run.update({
       where: { id: runId },
       data: {
         status: 'failed',
@@ -360,7 +362,7 @@ export async function executeWorkflowRun(runId: string, prisma: PrismaClient): P
       },
     });
 
-    await prisma.workflow.update({
+    await prisma.workflowV2.update({
       where: { id: workflow.id },
       data: {
         total_runs: { increment: 1 },

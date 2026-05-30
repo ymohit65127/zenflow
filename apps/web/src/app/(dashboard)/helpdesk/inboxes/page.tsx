@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { useState } from 'react';
@@ -33,7 +32,7 @@ function InboxDialog({ open, onClose, editingId }: { open: boolean; onClose: () 
           <h2 className="text-lg font-semibold">{editingId ? 'Edit Inbox' : 'Connect Email Inbox'}</h2>
           <button onClick={onClose}><X className="w-5 h-5" /></button>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); const payload = { ...form, team_id: form.team_id || undefined }; if (editingId) updateMutation.mutate({ id: editingId, ...payload }); else createMutation.mutate(payload); }} className="p-6 space-y-4">
+        <form onSubmit={(e) => { e.preventDefault(); const { team_id, default_priority, ...rest } = form; const provider = rest.provider === 'other' ? 'smtp' : rest.provider as 'gmail' | 'outlook' | 'smtp' | 'imap'; const payload = { ...rest, provider }; if (editingId) updateMutation.mutate({ id: editingId, ...payload }); else createMutation.mutate(payload); }} className="p-6 space-y-4">
           <div><label className="block text-sm font-medium mb-1.5">Display Name *</label>
             <input required value={form.name} onChange={set('name')} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50" placeholder="Support Inbox" /></div>
           <div><label className="block text-sm font-medium mb-1.5">Email Address *</label>
@@ -129,8 +128,7 @@ export default function InboxesPage() {
                   </div>
                   <p className="text-sm text-muted-foreground">{inbox.email_address}</p>
                   <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                    {inbox.team && <span>Team: {inbox.team.name}</span>}
-                    <span className="capitalize">Priority: {inbox.default_priority}</span>
+                    <span className="capitalize">{inbox.provider}</span>
                     {inbox.last_synced_at && <span className="flex items-center gap-1"><RefreshCw className="w-3 h-3" /> {new Date(inbox.last_synced_at).toLocaleDateString()}</span>}
                   </div>
                 </div>

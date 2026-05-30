@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@zenflow/db';
 
@@ -30,17 +29,17 @@ export async function POST(
     return NextResponse.json({ error: "'text' or 'content' field is required" }, { status: 400 });
   }
 
-  const message = await prisma.chatMessage.create({
+  const message = await prisma.chatMessageV2.create({
     data: {
       channel_id: webhook.channel_id,
       user_id: webhook.created_by,
       content: content.trim(),
-      type: 'SYSTEM',
+      message_type: 'system',
       metadata: {
         webhook_name: webhook.username ?? webhook.name,
         icon_url: webhook.icon_url ?? null,
         source: 'incoming_webhook',
-      },
+      } as object,
     },
   });
 

@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { use } from "react";
 import Link from "next/link";
@@ -9,17 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import {
   TrendingUp,
   ArrowLeft,
   DollarSign,
   Calendar,
   User,
-  AlertTriangle,
   Trophy,
   FileText,
-  Package,
   Clock,
   Activity,
 } from "lucide-react";
@@ -30,7 +25,7 @@ function formatCurrency(val: number | null | undefined) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(val);
 }
 
-function formatDate(d: Date | null | undefined) {
+function formatDate(d: Date | string | null | undefined) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
@@ -41,12 +36,12 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
   const { data: timeline } = api.crm.dealsV2.getTimeline.useQuery({ dealId: id });
 
   const markWonMutation = api.crm.dealsV2.markWon.useMutation({
-    onSuccess: () => { toast.success("Deal marked as won!"); refetch(); },
+    onSuccess: () => { toast.success("Deal marked as won!"); void refetch(); },
     onError: (err) => toast.error(err.message),
   });
 
   const markLostMutation = api.crm.dealsV2.markLost.useMutation({
-    onSuccess: () => { toast.success("Deal marked as lost"); refetch(); },
+    onSuccess: () => { toast.success("Deal marked as lost"); void refetch(); },
     onError: (err) => toast.error(err.message),
   });
 
@@ -68,9 +63,9 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
     );
   }
 
-  const probability = Number(deal.probability ?? deal.stage?.probability ?? 0);
-  const isWon = !!deal.won_at;
-  const isLost = !!deal.lost_at;
+  const probability = Number(deal.probability ?? 0);
+  const isWon = deal.status === "WON";
+  const isLost = deal.status === "LOST";
 
   return (
     <div className="space-y-6">
@@ -85,20 +80,13 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
             <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isWon ? "bg-green-500/10" : isLost ? "bg-red-500/10" : "bg-brand-500/10"}`}>
               {isWon ? (
                 <Trophy className="w-6 h-6 text-green-500" />
-              ) : isLost ? (
-                <TrendingUp className="w-6 h-6 text-red-500" />
               ) : (
-                <TrendingUp className="w-6 h-6 text-brand-500" />
+                <TrendingUp className={`w-6 h-6 ${isLost ? "text-red-500" : "text-brand-500"}`} />
               )}
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-2xl font-bold">{deal.name}</h1>
-                {deal.rotting && !isWon && !isLost && (
-                  <Badge className="bg-orange-500/10 text-orange-600 border-orange-300">
-                    <AlertTriangle className="w-3 h-3 mr-1" /> Rotting
-                  </Badge>
-                )}
                 {isWon && <Badge className="bg-green-500/10 text-green-600 border-green-300">Won</Badge>}
                 {isLost && <Badge className="bg-red-500/10 text-red-600 border-red-300">Lost</Badge>}
               </div>
@@ -144,20 +132,23 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
               <span>{probability}% probability</span>
             </div>
             <div className="flex gap-1">
-              {deal.pipeline.stages.filter((s) => s.stage_type === "active").map((stage) => (
-                <div
-                  key={stage.id}
-                  className="h-2 flex-1 rounded-full transition-all"
-                  style={{
-                    backgroundColor: deal.stage_id === stage.id
-                      ? stage.color
-                      : deal.pipeline!.stages.findIndex((s) => s.id === stage.id) <
-                          deal.pipeline!.stages.findIndex((s) => s.id === deal.stage_id)
-                        ? `${stage.color}40`
-                        : "hsl(var(--muted))",
-                  }}
-                />
-              ))}
+              {deal.pipeline.stages
+                .filter((s) => !s.is_closed)
+                .map((stage) => (
+                  <div
+                    key={stage.id}
+                    className="h-2 flex-1 rounded-full transition-all"
+                    style={{
+                      backgroundColor:
+                        deal.stage_id === stage.id
+                          ? stage.color
+                          : deal.pipeline!.stages.findIndex((s) => s.id === stage.id) <
+                              deal.pipeline!.stages.findIndex((s) => s.id === deal.stage_id)
+                            ? `${stage.color}40`
+                            : "hsl(var(--muted))",
+                    }}
+                  />
+                ))}
             </div>
           </div>
         )}
@@ -168,30 +159,28 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
             <DollarSign className="w-4 h-4 text-muted-foreground" />
             <div>
               <p className="text-xs text-muted-foreground">Value</p>
-              <p className="font-semibold">{formatCurrency(Number(deal.amount ?? 0))}</p>
+              <p className="font-semibold">{formatCurrency(deal.value ? Number(deal.value) : null)}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <Calendar className="w-4 h-4 text-muted-foreground" />
             <div>
               <p className="text-xs text-muted-foreground">Close Date</p>
-              <p className="font-semibold">{formatDate(deal.expected_close_date)}</p>
+              <p className="font-semibold">{formatDate(deal.expected_close)}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <User className="w-4 h-4 text-muted-foreground" />
             <div>
-              <p className="text-xs text-muted-foreground">Owner</p>
-              <p className="font-semibold">{deal.owner?.name ?? "Unassigned"}</p>
+              <p className="text-xs text-muted-foreground">Assignee</p>
+              <p className="font-semibold">{deal.assignee?.name ?? "Unassigned"}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-muted-foreground" />
             <div>
-              <p className="text-xs text-muted-foreground">Weighted</p>
-              <p className="font-semibold">
-                {deal.weighted_amount ? formatCurrency(Number(deal.weighted_amount)) : "—"}
-              </p>
+              <p className="text-xs text-muted-foreground">Probability</p>
+              <p className="font-semibold">{probability > 0 ? `${probability}%` : "—"}</p>
             </div>
           </div>
         </div>
@@ -201,10 +190,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
       <Tabs defaultValue="overview">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="products">Products ({deal.products?.length ?? 0})</TabsTrigger>
-          <TabsTrigger value="quotes">Quotes ({deal.quotes?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
-          <TabsTrigger value="notes">Notes ({deal.notes?.length ?? 0})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4">
@@ -214,21 +200,25 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                 <h3 className="font-medium text-sm">Deal Details</h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Type</span>
-                    <span className="capitalize">{deal.deal_type.replace(/_/g, " ")}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Priority</span>
-                    <span className="capitalize">{deal.priority}</span>
+                    <span className="text-muted-foreground">Status</span>
+                    <span className="capitalize">{deal.status}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Currency</span>
                     <span>{deal.currency}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Source</span>
-                    <span>{deal.source ?? "—"}</span>
-                  </div>
+                  {deal.closed_at && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Closed</span>
+                      <span>{formatDate(deal.closed_at)}</span>
+                    </div>
+                  )}
+                  {deal.lost_reason && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Lost Reason</span>
+                      <span className="text-right max-w-[60%]">{deal.lost_reason}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Created</span>
                     <span>{formatDate(deal.created_at)}</span>
@@ -241,113 +231,40 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
               <CardContent className="pt-4 space-y-3">
                 <h3 className="font-medium text-sm">Related</h3>
                 <div className="space-y-2 text-sm">
-                  {deal.contact && (
+                  {deal.contact ? (
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Contact</span>
                       <Link href={`/crm/contacts/${deal.contact.id}`} className="text-brand-500 hover:underline">
                         {deal.contact.first_name} {deal.contact.last_name ?? ""}
                       </Link>
                     </div>
-                  )}
-                  {deal.account && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Account</span>
-                      <Link href={`/crm/accounts/${deal.account.id}`} className="text-brand-500 hover:underline">
-                        {deal.account.name}
-                      </Link>
-                    </div>
+                  ) : (
+                    <p className="text-muted-foreground text-sm">No related contact</p>
                   )}
                 </div>
               </CardContent>
             </Card>
 
-            {deal.description && (
+            {deal.notes && (
               <Card className="md:col-span-2">
                 <CardContent className="pt-4">
-                  <h3 className="font-medium text-sm mb-2">Description</h3>
-                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">{deal.description}</p>
+                  <h3 className="font-medium text-sm mb-2">Notes</h3>
+                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">{deal.notes}</p>
                 </CardContent>
               </Card>
             )}
-          </div>
-        </TabsContent>
 
-        <TabsContent value="products" className="mt-4">
-          <div className="bg-card border border-border rounded-xl overflow-hidden">
-            {deal.products && deal.products.length > 0 ? (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-muted/30">
-                    <th className="text-left p-3 font-medium text-muted-foreground">Product</th>
-                    <th className="text-right p-3 font-medium text-muted-foreground">Qty</th>
-                    <th className="text-right p-3 font-medium text-muted-foreground">Unit Price</th>
-                    <th className="text-right p-3 font-medium text-muted-foreground">Line Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {deal.products.map((item) => (
-                    <tr key={item.id} className="border-b border-border last:border-0">
-                      <td className="p-3">
-                        <p className="font-medium">{item.name}</p>
-                        {item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}
-                      </td>
-                      <td className="p-3 text-right">{Number(item.quantity)}</td>
-                      <td className="p-3 text-right">{formatCurrency(Number(item.unit_price))}</td>
-                      <td className="p-3 text-right font-semibold">{formatCurrency(Number(item.line_total))}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <div className="p-8 text-center text-muted-foreground">
-                <Package className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                <p className="text-sm">No products added</p>
-              </div>
-            )}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="quotes" className="mt-4">
-          <div className="bg-card border border-border rounded-xl overflow-hidden">
-            {deal.quotes && deal.quotes.length > 0 ? (
-              <div className="divide-y divide-border">
-                {deal.quotes.map((quote) => (
-                  <div key={quote.id} className="flex items-center justify-between p-4 hover:bg-muted/30">
-                    <div>
-                      <p className="font-medium text-sm">{quote.title}</p>
-                      <p className="text-xs text-muted-foreground">{quote.number}</p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Badge
-                        variant="outline"
-                        className={
-                          quote.status === "accepted"
-                            ? "text-green-600 border-green-300"
-                            : quote.status === "rejected"
-                            ? "text-red-600 border-red-300"
-                            : quote.status === "sent"
-                            ? "text-blue-600 border-blue-300"
-                            : ""
-                        }
-                      >
-                        {quote.status}
-                      </Badge>
-                      <span className="font-semibold text-sm">{formatCurrency(Number(quote.grand_total))}</span>
-                      <Link href={`/crm/quotes/${quote.id}`} className="text-brand-500 text-xs hover:underline">
-                        View
-                      </Link>
-                    </div>
+            {deal.tags && deal.tags.length > 0 && (
+              <Card className="md:col-span-2">
+                <CardContent className="pt-4">
+                  <h3 className="font-medium text-sm mb-2">Tags</h3>
+                  <div className="flex flex-wrap gap-1">
+                    {deal.tags.map((tag) => (
+                      <Badge key={tag} variant="outline" className="text-xs">{tag}</Badge>
+                    ))}
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-8 text-center text-muted-foreground">
-                <FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                <p className="text-sm">No quotes yet</p>
-                <Link href={`/crm/quotes?dealId=${deal.id}`} className="text-brand-500 text-xs mt-1 block hover:underline">
-                  Create a quote
-                </Link>
-              </div>
+                </CardContent>
+              </Card>
             )}
           </div>
         </TabsContent>
@@ -366,14 +283,14 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                     <div className="flex items-center justify-between">
                       <Badge variant="outline" className="text-xs capitalize">{item.type}</Badge>
                       <span className="text-xs text-muted-foreground">
-                        {new Date(item.date).toLocaleDateString()}
+                        {new Date((item.date as unknown as string) ?? new Date()).toLocaleDateString()}
                       </span>
                     </div>
                     {item.type === "note" && (
                       <p className="text-sm mt-1">{(item.data as { content: string }).content}</p>
                     )}
                     {item.type === "activity" && (
-                      <p className="text-sm mt-1">{(item.data as { title: string }).title}</p>
+                      <p className="text-sm mt-1">{(item.data as unknown as { title: string }).title}</p>
                     )}
                     {item.type === "email" && (
                       <p className="text-sm mt-1">{(item.data as { subject?: string }).subject ?? "(No subject)"}</p>
@@ -385,28 +302,6 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
               <div className="text-center py-8 text-muted-foreground">
                 <Clock className="w-8 h-8 mx-auto mb-2 opacity-40" />
                 <p className="text-sm">No timeline activity yet</p>
-              </div>
-            )}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="notes" className="mt-4">
-          <div className="bg-card border border-border rounded-xl overflow-hidden">
-            {deal.notes && deal.notes.length > 0 ? (
-              <div className="divide-y divide-border">
-                {deal.notes.map((note) => (
-                  <div key={note.id} className="p-4">
-                    <p className="text-sm whitespace-pre-wrap">{note.content}</p>
-                    <p className="text-xs text-muted-foreground mt-1.5">
-                      {formatDate(note.created_at)}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-8 text-center text-muted-foreground">
-                <FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                <p className="text-sm">No notes yet</p>
               </div>
             )}
           </div>

@@ -1,7 +1,7 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { HrReviewCycleStatus } from '@prisma/client';
 
 export const performanceRouter = createTRPCRouter({
   // ---------------------------------------------------------------------------
@@ -225,7 +225,7 @@ export const performanceRouter = createTRPCRouter({
         manager_review: 'calibration',
         calibration: 'completed',
       };
-      const nextStatus = next[cycle.status] ?? cycle.status;
+      const nextStatus = (next[cycle.status] ?? cycle.status) as HrReviewCycleStatus;
       return ctx.prisma.hrPerformanceReviewCycle.update({
         where: { id: input.cycle_id },
         data: { status: nextStatus },

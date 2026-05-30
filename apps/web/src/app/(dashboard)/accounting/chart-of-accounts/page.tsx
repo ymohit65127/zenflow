@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { useState } from "react";
 import {
@@ -277,7 +275,7 @@ function AccountRow({ account, depth = 0 }: { account: Account; depth?: number }
         children.map((child) => (
           <AccountRow
             key={child.id}
-            account={child as Account}
+            account={child as unknown as Account}
             depth={depth + 1}
           />
         ))}
@@ -417,7 +415,7 @@ export default function ChartOfAccountsPage() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {rootAccounts.map((acc) => (
-                    <AccountRow key={acc.id} account={acc as Account} />
+                    <AccountRow key={acc.id} account={acc as unknown as Account} />
                   ))}
                 </tbody>
               </table>

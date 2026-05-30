@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { useState } from 'react';
@@ -233,9 +232,9 @@ export default function TemplatesPage() {
                   </div>
                   <span className={cn(
                     'text-xs px-2 py-0.5 rounded-full font-medium capitalize',
-                    METHODOLOGY_COLORS[template.methodology] ?? 'bg-muted text-muted-foreground'
+                    template.methodology ? (METHODOLOGY_COLORS[template.methodology] ?? 'bg-muted text-muted-foreground') : 'bg-muted text-muted-foreground'
                   )}>
-                    {template.methodology}
+                    {template.methodology ?? '—'}
                   </span>
                 </div>
 

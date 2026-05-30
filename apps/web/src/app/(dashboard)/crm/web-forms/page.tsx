@@ -1,9 +1,6 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { useState } from "react";
-import Link from "next/link";
 import { api } from "@/trpc/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,7 +30,6 @@ import {
   Users,
   Globe,
   Trash2,
-  CheckCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -56,7 +52,6 @@ function CreateFormDialog({ onCreated }: { onCreated: () => void }) {
   const [form, setForm] = useState({
     name: "",
     pipelineId: "",
-    successMessage: "Thank you! We'll be in touch soon.",
     isActive: true,
   });
 
@@ -66,7 +61,7 @@ function CreateFormDialog({ onCreated }: { onCreated: () => void }) {
     onSuccess: () => {
       toast.success("Web form created");
       setOpen(false);
-      setForm({ name: "", pipelineId: "", successMessage: "Thank you! We'll be in touch soon.", isActive: true });
+      setForm({ name: "", pipelineId: "", isActive: true });
       onCreated();
     },
     onError: (err) => toast.error(err.message),
@@ -106,13 +101,6 @@ function CreateFormDialog({ onCreated }: { onCreated: () => void }) {
               </SelectContent>
             </Select>
           </div>
-          <div>
-            <Label>Success Message</Label>
-            <Input
-              value={form.successMessage}
-              onChange={(e) => setForm({ ...form, successMessage: e.target.value })}
-            />
-          </div>
           <div className="flex items-center justify-between">
             <Label>Active</Label>
             <Switch
@@ -132,7 +120,6 @@ function CreateFormDialog({ onCreated }: { onCreated: () => void }) {
                 name: form.name,
                 pipeline_id: form.pipelineId || undefined,
                 fields: DEFAULT_FIELDS,
-                success_message: form.successMessage,
                 is_active: form.isActive,
               })
             }
@@ -149,26 +136,26 @@ export default function WebFormsPage() {
   const { data: forms, isLoading, refetch } = api.crm.webforms.list.useQuery();
 
   const deleteMutation = api.crm.webforms.delete.useMutation({
-    onSuccess: () => { toast.success("Form deleted"); refetch(); },
+    onSuccess: () => { toast.success("Form deleted"); void refetch(); },
     onError: (err) => toast.error(err.message),
   });
 
   const updateMutation = api.crm.webforms.update.useMutation({
-    onSuccess: () => { toast.success("Updated"); refetch(); },
+    onSuccess: () => { toast.success("Updated"); void refetch(); },
     onError: (err) => toast.error(err.message),
   });
 
-  function copyEmbedCode(embedKey: string) {
-    const code = `<script src="https://app.zenflow.io/embed/forms/${embedKey}.js"></script>\n<div id="zenflow-form-${embedKey}"></div>`;
+  function copyEmbedCode(slug: string) {
+    const code = `<script src="https://app.zenflow.io/embed/forms/${slug}.js"></script>\n<div id="zenflow-form-${slug}"></div>`;
     navigator.clipboard.writeText(code).then(() => toast.success("Embed code copied!"));
   }
 
-  function copyFormUrl(embedKey: string) {
-    const url = `${window.location.origin}/forms/${embedKey}`;
+  function copyFormUrl(slug: string) {
+    const url = `${window.location.origin}/forms/${slug}`;
     navigator.clipboard.writeText(url).then(() => toast.success("Form URL copied!"));
   }
 
-  const totalSubmissions = forms?.reduce((sum, f) => sum + f.submissions_count, 0) ?? 0;
+  const totalSubmissions = forms?.reduce((sum, f) => sum + (f._count?.submissions ?? 0), 0) ?? 0;
 
   return (
     <div className="space-y-6">
@@ -182,7 +169,7 @@ export default function WebFormsPage() {
             {forms?.length ?? 0} forms · {totalSubmissions} total submissions
           </p>
         </div>
-        <CreateFormDialog onCreated={() => refetch()} />
+        <CreateFormDialog onCreated={() => void refetch()} />
       </div>
 
       {isLoading ? (
@@ -211,9 +198,6 @@ export default function WebFormsPage() {
                       ) : (
                         <Badge variant="outline" className="text-muted-foreground text-xs">Inactive</Badge>
                       )}
-                      {form.pipeline && (
-                        <span className="text-xs text-muted-foreground">{form.pipeline.name}</span>
-                      )}
                     </div>
                   </div>
                   <DropdownMenu>
@@ -223,10 +207,10 @@ export default function WebFormsPage() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => copyFormUrl(form.embed_key)}>
+                      <DropdownMenuItem onClick={() => copyFormUrl(form.slug)}>
                         <Globe className="w-3.5 h-3.5 mr-2" /> Copy URL
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => copyEmbedCode(form.embed_key)}>
+                      <DropdownMenuItem onClick={() => copyEmbedCode(form.slug)}>
                         <Copy className="w-3.5 h-3.5 mr-2" /> Copy Embed Code
                       </DropdownMenuItem>
                       <DropdownMenuItem
@@ -252,7 +236,7 @@ export default function WebFormsPage() {
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-1 text-muted-foreground">
                     <Users className="w-4 h-4" />
-                    <span className="text-2xl font-bold text-foreground ml-1">{form.submissions_count}</span>
+                    <span className="text-2xl font-bold text-foreground ml-1">{form._count?.submissions ?? 0}</span>
                     <span className="text-sm ml-1">submissions</span>
                   </div>
                 </div>
@@ -262,7 +246,7 @@ export default function WebFormsPage() {
                     variant="outline"
                     size="sm"
                     className="w-full text-xs"
-                    onClick={() => copyEmbedCode(form.embed_key)}
+                    onClick={() => copyEmbedCode(form.slug)}
                   >
                     <Copy className="w-3.5 h-3.5 mr-1" /> Copy Embed Code
                   </Button>
@@ -271,15 +255,15 @@ export default function WebFormsPage() {
                       variant="outline"
                       size="sm"
                       className="flex-1 text-xs"
-                      onClick={() => copyFormUrl(form.embed_key)}
+                      onClick={() => copyFormUrl(form.slug)}
                     >
                       <Globe className="w-3.5 h-3.5 mr-1" /> Form URL
                     </Button>
-                    <Link href={`/forms/${form.embed_key}`} target="_blank" className="flex-1">
+                    <a href={`/forms/${form.slug}`} target="_blank" rel="noreferrer" className="flex-1">
                       <Button variant="outline" size="sm" className="w-full text-xs">
                         Preview
                       </Button>
-                    </Link>
+                    </a>
                   </div>
                 </div>
               </CardContent>

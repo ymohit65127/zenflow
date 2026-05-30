@@ -1,33 +1,28 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { CrmDiscountType } from '@prisma/client';
 
 const DealCreateSchema = z.object({
   pipeline_id: z.string(),
   stage_id: z.string(),
   name: z.string().min(1).max(255),
-  amount: z.number().optional(),
+  value: z.number().optional(),
   currency: z.string().length(3).default('USD'),
   probability: z.number().min(0).max(100).optional(),
-  expected_close_date: z.date().optional(),
-  deal_type: z.enum(['new_business', 'renewal', 'upsell', 'expansion', 'other']).default('new_business'),
-  priority: z.enum(['low', 'medium', 'high', 'urgent']).default('medium'),
-  owner_id: z.string().optional(),
+  expected_close: z.date().optional(),
+  assignee_id: z.string().optional(),
   contact_id: z.string().optional(),
-  account_id: z.string().optional(),
-  source: z.string().optional(),
-  description: z.string().optional(),
+  notes: z.string().optional(),
+  tags: z.array(z.string()).default([]),
 });
 
 const DealUpdateSchema = DealCreateSchema.partial().omit({ pipeline_id: true, stage_id: true });
 
 const DealFilterSchema = z.object({
   search: z.string().optional(),
-  owner_id: z.string().optional(),
+  assignee_id: z.string().optional(),
   stage_id: z.string().optional(),
-  priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
-  rotting: z.boolean().optional(),
   dateFrom: z.date().optional(),
   dateTo: z.date().optional(),
 });
@@ -54,24 +49,26 @@ export const crmDealsRouter = createTRPCRouter({
         organization_id: orgId,
         deleted_at: null,
         ...(pipelineId && { pipeline_id: pipelineId }),
-        ...(filters.owner_id && { owner_id: filters.owner_id }),
+        ...(filters.assignee_id && { assignee_id: filters.assignee_id }),
         ...(filters.stage_id && { stage_id: filters.stage_id }),
-        ...(filters.priority && { priority: filters.priority }),
-        ...(filters.rotting !== undefined && { rotting: filters.rotting }),
         ...(filters.search && { name: { contains: filters.search, mode: 'insensitive' } }),
         ...(cursor && { id: { lt: cursor } }),
       };
 
+      const sortField =
+        sort.field === 'amount' ? 'value'
+        : sort.field === 'expected_close_date' ? 'expected_close'
+        : sort.field;
+
       const deals = await ctx.prisma.crmDeal.findMany({
         where,
         take: limit + 1,
-        orderBy: { [sort.field]: sort.dir },
+        orderBy: { [sortField]: sort.dir } as Record<string, 'asc' | 'desc'>,
         include: {
-          stage: { select: { id: true, name: true, color: true, stage_type: true } },
+          stage: { select: { id: true, name: true, color: true, sort_order: true } },
           pipeline: { select: { id: true, name: true } },
           contact: { select: { id: true, first_name: true, last_name: true, email: true } },
-          account: { select: { id: true, name: true } },
-          owner: { select: { id: true, name: true, avatar_url: true } },
+          assignee: { select: { id: true, name: true, avatar_url: true } },
         },
       });
 
@@ -91,15 +88,14 @@ export const crmDealsRouter = createTRPCRouter({
 
       const [pipeline, deals] = await Promise.all([
         ctx.prisma.crmPipeline.findFirst({
-          where: { id: input.pipelineId, organization_id: orgId, deleted_at: null },
-          include: { stages: { orderBy: { position: 'asc' } } },
+          where: { id: input.pipelineId, organization_id: orgId },
+          include: { stages: { orderBy: { sort_order: 'asc' } } },
         }),
         ctx.prisma.crmDeal.findMany({
           where: { pipeline_id: input.pipelineId, organization_id: orgId, deleted_at: null },
           include: {
             contact: { select: { id: true, first_name: true, last_name: true } },
-            account: { select: { id: true, name: true } },
-            owner: { select: { id: true, name: true, avatar_url: true } },
+            assignee: { select: { id: true, name: true, avatar_url: true } },
           },
           orderBy: { created_at: 'asc' },
         }),
@@ -113,7 +109,7 @@ export const crmDealsRouter = createTRPCRouter({
       }
       for (const deal of deals) {
         if (byStage[deal.stage_id]) {
-          byStage[deal.stage_id].push(deal);
+          byStage[deal.stage_id]!.push(deal);
         }
       }
 
@@ -128,13 +124,9 @@ export const crmDealsRouter = createTRPCRouter({
         where: { id: input.id, organization_id: orgId, deleted_at: null },
         include: {
           stage: true,
-          pipeline: { include: { stages: { orderBy: { position: 'asc' } } } },
+          pipeline: { include: { stages: { orderBy: { sort_order: 'asc' } } } },
           contact: true,
-          account: true,
-          owner: { select: { id: true, name: true, avatar_url: true } },
-          products: { include: { product: true }, orderBy: { position: 'asc' } },
-          quotes: { orderBy: { created_at: 'desc' }, take: 5 },
-          notes: { where: { deleted_at: null }, orderBy: [{ is_pinned: 'desc' }, { created_at: 'desc' }], take: 10 },
+          assignee: { select: { id: true, name: true, avatar_url: true } },
           activities: { orderBy: { created_at: 'desc' }, take: 10 },
         },
       });
@@ -147,9 +139,8 @@ export const crmDealsRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
 
-      const stage = await ctx.prisma.crmStage.findUnique({ where: { id: input.stage_id } });
-      const probability = input.probability ?? (stage ? Number(stage.probability) : 0);
-      const weightedAmount = input.amount ? input.amount * probability / 100 : null;
+      const stage = await ctx.prisma.crmPipelineStage.findUnique({ where: { id: input.stage_id } });
+      const probability = input.probability ?? (stage ? Number(stage.win_probability) : 0);
 
       return ctx.prisma.crmDeal.create({
         data: {
@@ -157,19 +148,15 @@ export const crmDealsRouter = createTRPCRouter({
           pipeline_id: input.pipeline_id,
           stage_id: input.stage_id,
           name: input.name,
-          amount: input.amount ?? null,
+          value: input.value ?? null,
           currency: input.currency,
           probability: probability,
-          weighted_amount: weightedAmount,
-          expected_close_date: input.expected_close_date ?? null,
-          deal_type: input.deal_type,
-          priority: input.priority,
-          owner_id: input.owner_id ?? null,
+          expected_close: input.expected_close ?? null,
+          assignee_id: input.assignee_id ?? null,
           contact_id: input.contact_id ?? null,
-          account_id: input.account_id ?? null,
-          source: input.source ?? null,
-          description: input.description ?? null,
-          stage_changed_at: new Date(),
+          notes: input.notes ?? null,
+          tags: input.tags ?? [],
+          status: 'OPEN',
         },
         include: { stage: true, contact: true },
       });
@@ -184,18 +171,18 @@ export const crmDealsRouter = createTRPCRouter({
       });
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deal not found' });
 
-      const amount = input.data.amount ?? (existing.amount ? Number(existing.amount) : null);
-      const prob = input.data.probability ?? (existing.probability ? Number(existing.probability) : null);
-      const weightedAmount = amount && prob ? amount * prob / 100 : null;
-
       return ctx.prisma.crmDeal.update({
         where: { id: input.id },
         data: {
-          ...input.data,
-          amount: amount ?? null,
-          probability: prob ?? null,
-          weighted_amount: weightedAmount,
-          expected_close_date: input.data.expected_close_date ?? null,
+          ...(input.data.name !== undefined && { name: input.data.name }),
+          ...(input.data.value !== undefined && { value: input.data.value ?? null }),
+          ...(input.data.currency !== undefined && { currency: input.data.currency }),
+          ...(input.data.probability !== undefined && { probability: input.data.probability ?? null }),
+          ...(input.data.expected_close !== undefined && { expected_close: input.data.expected_close ?? null }),
+          ...(input.data.assignee_id !== undefined && { assignee_id: input.data.assignee_id ?? null }),
+          ...(input.data.contact_id !== undefined && { contact_id: input.data.contact_id ?? null }),
+          ...(input.data.notes !== undefined && { notes: input.data.notes ?? null }),
+          ...(input.data.tags !== undefined && { tags: input.data.tags }),
         },
       });
     }),
@@ -209,7 +196,7 @@ export const crmDealsRouter = createTRPCRouter({
       });
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deal not found' });
 
-      const stage = await ctx.prisma.crmStage.findFirst({
+      const stage = await ctx.prisma.crmPipelineStage.findFirst({
         where: { id: input.stageId, pipeline: { organization_id: orgId } },
       });
       if (!stage) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Stage not found or belongs to different organization' });
@@ -219,9 +206,6 @@ export const crmDealsRouter = createTRPCRouter({
         data: {
           stage_id: input.stageId,
           pipeline_id: input.pipelineId,
-          stage_changed_at: new Date(),
-          last_activity_at: new Date(),
-          rotting: false,
         },
       });
     }),
@@ -230,7 +214,6 @@ export const crmDealsRouter = createTRPCRouter({
     .input(
       z.object({
         dealId: z.string(),
-        wonAt: z.date().optional(),
         winReason: z.string().max(500).optional(),
       })
     )
@@ -238,21 +221,18 @@ export const crmDealsRouter = createTRPCRouter({
       const orgId = ctx.session.user.organizationId as string;
       const deal = await ctx.prisma.crmDeal.findFirst({
         where: { id: input.dealId, organization_id: orgId, deleted_at: null },
-        include: { pipeline: { include: { stages: true } } },
+        include: { pipeline: { include: { stages: { orderBy: { sort_order: 'asc' } } } } },
       });
       if (!deal) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deal not found' });
 
-      const wonStage = deal.pipeline.stages.find((s) => s.stage_type === 'won');
-      const wonAt = input.wonAt ?? new Date();
+      const wonStage = deal.pipeline.stages.find((s) => s.is_won);
 
       return ctx.prisma.crmDeal.update({
         where: { id: input.dealId },
         data: {
-          won_at: wonAt,
-          actual_close_date: wonAt,
-          win_reason: input.winReason ?? null,
+          status: 'WON',
+          closed_at: new Date(),
           stage_id: wonStage?.id ?? deal.stage_id,
-          rotting: false,
         },
       });
     }),
@@ -261,7 +241,7 @@ export const crmDealsRouter = createTRPCRouter({
     .input(
       z.object({
         dealId: z.string(),
-        lostReasonId: z.string().optional(),
+        lostReason: z.string().optional(),
         notes: z.string().optional(),
       })
     )
@@ -269,22 +249,19 @@ export const crmDealsRouter = createTRPCRouter({
       const orgId = ctx.session.user.organizationId as string;
       const deal = await ctx.prisma.crmDeal.findFirst({
         where: { id: input.dealId, organization_id: orgId, deleted_at: null },
-        include: { pipeline: { include: { stages: true } } },
+        include: { pipeline: { include: { stages: { orderBy: { sort_order: 'asc' } } } } },
       });
       if (!deal) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deal not found' });
 
-      const lostStage = deal.pipeline.stages.find((s) => s.stage_type === 'lost');
-      const lostAt = new Date();
+      const lostStage = deal.pipeline.stages.find((s) => s.is_closed && !s.is_won);
 
       return ctx.prisma.crmDeal.update({
         where: { id: input.dealId },
         data: {
-          lost_at: lostAt,
-          actual_close_date: lostAt,
-          lost_reason_id: input.lostReasonId ?? null,
-          description: input.notes ? `${deal.description ?? ''}\n\nLost reason notes: ${input.notes}` : deal.description,
+          status: 'LOST',
+          closed_at: new Date(),
+          lost_reason: input.lostReason ?? (input.notes ?? null),
           stage_id: lostStage?.id ?? deal.stage_id,
-          rotting: false,
         },
       });
     }),
@@ -309,7 +286,7 @@ export const crmDealsRouter = createTRPCRouter({
       const orgId = ctx.session.user.organizationId as string;
       return ctx.prisma.crmDeal.updateMany({
         where: { id: { in: input.dealIds }, organization_id: orgId, deleted_at: null },
-        data: { stage_id: input.stageId, stage_changed_at: new Date() },
+        data: { stage_id: input.stageId },
       });
     }),
 
@@ -324,7 +301,7 @@ export const crmDealsRouter = createTRPCRouter({
 
       const [activities, notes, emails] = await Promise.all([
         ctx.prisma.crmActivity.findMany({
-          where: { entity_type: 'deal', entity_id: input.dealId, organization_id: orgId },
+          where: { deal_id: input.dealId, organization_id: orgId },
           orderBy: { created_at: 'desc' },
           take: input.limit,
         }),
@@ -344,7 +321,7 @@ export const crmDealsRouter = createTRPCRouter({
         ...activities.map((a) => ({ type: 'activity' as const, date: a.created_at, data: a })),
         ...notes.map((n) => ({ type: 'note' as const, date: n.created_at, data: n })),
         ...emails.map((e) => ({ type: 'email' as const, date: e.sent_at, data: e })),
-      ].sort((a, b) => b.date.getTime() - a.date.getTime());
+      ].sort((a, b) => (b.date ?? new Date(0)).getTime() - (a.date ?? new Date(0)).getTime());
 
       return timeline;
     }),
@@ -354,15 +331,11 @@ export const crmDealsRouter = createTRPCRouter({
     .input(
       z.object({
         dealId: z.string(),
-        productId: z.string().optional(),
-        name: z.string().min(1),
-        description: z.string().optional(),
+        productId: z.string(),
         quantity: z.number().min(0.001).default(1),
         unit_price: z.number().min(0),
-        discount_type: z.enum(['percent', 'amount']).optional(),
-        discount_value: z.number().default(0),
-        tax_rate: z.number().default(0),
-        currency: z.string().length(3).default('USD'),
+        discount_type: z.enum(['percent', 'amount']).default('percent'),
+        discount: z.number().default(0),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -372,32 +345,21 @@ export const crmDealsRouter = createTRPCRouter({
       });
       if (!deal) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deal not found' });
 
-      const maxPos = await ctx.prisma.crmDealProduct.aggregate({
-        where: { deal_id: input.dealId },
-        _max: { position: true },
-      });
-
       const discountAmt =
         input.discount_type === 'percent'
-          ? input.quantity * input.unit_price * (input.discount_value / 100)
-          : (input.discount_value ?? 0);
-      const subtotal = input.quantity * input.unit_price - discountAmt;
-      const lineTotal = subtotal * (1 + input.tax_rate);
+          ? input.quantity * input.unit_price * (input.discount / 100)
+          : input.discount;
+      const total = input.quantity * input.unit_price - discountAmt;
 
       return ctx.prisma.crmDealProduct.create({
         data: {
           deal_id: input.dealId,
-          product_id: input.productId ?? null,
-          name: input.name,
-          description: input.description ?? null,
+          product_id: input.productId,
           quantity: input.quantity,
           unit_price: input.unit_price,
-          discount_type: input.discount_type ?? null,
-          discount_value: input.discount_value,
-          tax_rate: input.tax_rate,
-          line_total: lineTotal,
-          currency: input.currency,
-          position: (maxPos._max.position ?? 0) + 1,
+          discount_type: input.discount_type as unknown as CrmDiscountType,
+          discount: input.discount,
+          total,
         },
       });
     }),
@@ -406,11 +368,13 @@ export const crmDealsRouter = createTRPCRouter({
     .input(z.object({ dealProductId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
-      // Verify ownership
       const dp = await ctx.prisma.crmDealProduct.findFirst({
-        where: { id: input.dealProductId, deal: { organization_id: orgId } },
+        where: { id: input.dealProductId },
+        include: { product: { select: { organization_id: true } } },
       });
-      if (!dp) throw new TRPCError({ code: 'FORBIDDEN', message: 'Not found or access denied' });
+      if (!dp || dp.product.organization_id !== orgId) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Not found or access denied' });
+      }
       return ctx.prisma.crmDealProduct.delete({ where: { id: input.dealProductId } });
     }),
 });

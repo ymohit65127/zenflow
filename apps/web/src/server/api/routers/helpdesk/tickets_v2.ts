@@ -1,12 +1,12 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure, publicProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { HdTicketStatus, HdTicketChannel, HdReplyType, HdSlaStatus } from '@zenflow/db';
 
-const TICKET_STATUSES = ['open', 'in_progress', 'pending', 'resolved', 'closed'] as const;
+const TICKET_STATUSES = ['open', 'pending', 'on_hold', 'resolved', 'closed', 'new'] as const;
 const TICKET_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
-const TICKET_CHANNELS = ['email', 'web', 'chat', 'whatsapp', 'phone', 'social', 'portal', 'api'] as const;
-const SLA_STATUSES = ['ok', 'warning', 'breached_first', 'breached_resolution'] as const;
+const TICKET_CHANNELS = ['email', 'web', 'chat', 'phone', 'social', 'api'] as const;
+const SLA_STATUSES = ['active', 'breached', 'completed', 'paused'] as const;
 
 const AttachmentSchema = z.object({
   name: z.string(),
@@ -35,7 +35,6 @@ export const ticketsV2Router = createTRPCRouter({
       from_date: z.string().optional(),
       to_date: z.string().optional(),
       view: z.enum(['mine', 'unassigned', 'all_open', 'overdue', 'team']).optional(),
-      spam: z.boolean().optional(),
     }))
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
@@ -45,7 +44,6 @@ export const ticketsV2Router = createTRPCRouter({
       const where: Record<string, unknown> = {
         organization_id: orgId,
         deleted_at: null,
-        spam: input.spam ?? false,
       };
 
       if (input.status) where['status'] = input.status;
@@ -66,8 +64,8 @@ export const ticketsV2Router = createTRPCRouter({
       // Named views
       if (input.view === 'mine') where['assignee_id'] = userId;
       if (input.view === 'unassigned') where['assignee_id'] = null;
-      if (input.view === 'all_open') where['status'] = { in: ['open', 'in_progress'] };
-      if (input.view === 'overdue') where['sla_status'] = { in: ['breached_first', 'breached_resolution'] };
+      if (input.view === 'all_open') where['status'] = { in: ['open', 'pending'] as HdTicketStatus[] };
+      if (input.view === 'overdue') where['sla_status'] = 'breached' as HdSlaStatus;
 
       if (input.search) {
         where['OR'] = [
@@ -108,13 +106,11 @@ export const ticketsV2Router = createTRPCRouter({
         where: { id: input.id, organization_id: orgId },
         include: {
           category: true,
-          sub_category: true,
           sla_policy: { include: { business_hours: true } },
           team: { include: { members: true } },
           replies: { orderBy: { created_at: 'asc' } },
           time_logs: { orderBy: { logged_at: 'desc' } },
-          merged_tickets: { select: { id: true, ticket_number: true, subject: true } },
-          child_tickets: { select: { id: true, ticket_number: true, subject: true, status: true } },
+          surveys: true,
         },
       });
       if (!ticket) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ticket not found' });
@@ -129,7 +125,7 @@ export const ticketsV2Router = createTRPCRouter({
       subject: z.string().min(1).max(500),
       description: z.string().optional(),
       priority: z.enum(TICKET_PRIORITIES).default('medium'),
-      type: z.enum(['question', 'incident', 'problem', 'task', 'feature_request']).default('question'),
+      ticket_type: z.enum(['question', 'incident', 'problem', 'task', 'feature_request']).default('question'),
       channel: z.enum(TICKET_CHANNELS).default('web'),
       category_id: z.string().optional(),
       team_id: z.string().optional(),
@@ -138,13 +134,11 @@ export const ticketsV2Router = createTRPCRouter({
       requester_email: z.string().email().optional(),
       tags: z.array(z.string()).default([]),
       sla_policy_id: z.string().optional(),
-      cc_emails: z.array(z.string().email()).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
-      const userId = ctx.session.user.id;
 
-      // Generate ticket number (simple counter fallback)
+      // Generate ticket number
       const last = await ctx.prisma.hdTicket.findFirst({
         where: { organization_id: orgId },
         orderBy: { created_at: 'desc' },
@@ -156,13 +150,12 @@ export const ticketsV2Router = createTRPCRouter({
       const ticket = await ctx.prisma.hdTicket.create({
         data: {
           organization_id: orgId,
-          creator_id: userId,
           ticket_number,
           subject: input.subject,
           description: input.description ?? null,
           priority: input.priority,
-          type: input.type,
-          channel: input.channel,
+          ticket_type: input.ticket_type,
+          channel: input.channel as HdTicketChannel,
           category_id: input.category_id ?? null,
           team_id: input.team_id ?? null,
           assignee_id: input.assignee_id ?? null,
@@ -170,33 +163,13 @@ export const ticketsV2Router = createTRPCRouter({
           requester_email: input.requester_email ?? null,
           tags: input.tags,
           sla_policy_id: input.sla_policy_id ?? null,
-          cc_emails: input.cc_emails ?? [],
-          status: 'open',
+          status: 'open' as HdTicketStatus,
         },
         include: {
           category: { select: { id: true, name: true } },
           team: { select: { id: true, name: true } },
         },
       });
-
-      // Apply SLA due dates if policy set
-      if (input.sla_policy_id) {
-        const policy = await ctx.prisma.hdSlaPolicy.findFirst({
-          where: { id: input.sla_policy_id, organization_id: orgId },
-          include: { business_hours: true },
-        });
-        if (policy) {
-          const frHours = (policy.first_response_hours as Record<string, number>)[input.priority] ?? 4;
-          const resHours = (policy.resolution_hours as Record<string, number>)[input.priority] ?? 24;
-          await ctx.prisma.hdTicket.update({
-            where: { id: ticket.id },
-            data: {
-              first_response_due_at: new Date(ticket.created_at.getTime() + frHours * 3600000),
-              resolution_due_at: new Date(ticket.created_at.getTime() + resHours * 3600000),
-            },
-          });
-        }
-      }
 
       return ticket;
     }),
@@ -211,7 +184,7 @@ export const ticketsV2Router = createTRPCRouter({
       description: z.string().optional(),
       status: z.enum(TICKET_STATUSES).optional(),
       priority: z.enum(TICKET_PRIORITIES).optional(),
-      type: z.enum(['question', 'incident', 'problem', 'task', 'feature_request']).optional(),
+      ticket_type: z.enum(['question', 'incident', 'problem', 'task', 'feature_request']).optional(),
       category_id: z.string().nullable().optional(),
       team_id: z.string().nullable().optional(),
       assignee_id: z.string().nullable().optional(),
@@ -219,7 +192,6 @@ export const ticketsV2Router = createTRPCRouter({
       tags: z.array(z.string()).optional(),
       requester_name: z.string().optional(),
       requester_email: z.string().email().optional(),
-      cc_emails: z.array(z.string().email()).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
@@ -237,7 +209,7 @@ export const ticketsV2Router = createTRPCRouter({
         if (data.status === 'closed') updateData['closed_at'] = new Date();
       }
       if (data.priority !== undefined) updateData['priority'] = data.priority;
-      if (data.type !== undefined) updateData['type'] = data.type;
+      if (data.ticket_type !== undefined) updateData['ticket_type'] = data.ticket_type;
       if (data.category_id !== undefined) updateData['category_id'] = data.category_id;
       if (data.team_id !== undefined) updateData['team_id'] = data.team_id;
       if (data.assignee_id !== undefined) updateData['assignee_id'] = data.assignee_id;
@@ -245,7 +217,6 @@ export const ticketsV2Router = createTRPCRouter({
       if (data.tags !== undefined) updateData['tags'] = data.tags;
       if (data.requester_name !== undefined) updateData['requester_name'] = data.requester_name;
       if (data.requester_email !== undefined) updateData['requester_email'] = data.requester_email;
-      if (data.cc_emails !== undefined) updateData['cc_emails'] = data.cc_emails;
 
       return ctx.prisma.hdTicket.update({ where: { id }, data: updateData });
     }),
@@ -258,10 +229,8 @@ export const ticketsV2Router = createTRPCRouter({
       ticket_id: z.string(),
       body: z.string().min(1),
       body_html: z.string().optional(),
-      reply_type: z.enum(['reply', 'note', 'auto_reply', 'system']).default('reply'),
+      reply_type: z.enum(['public', 'private', 'system']).default('public'),
       is_public: z.boolean().default(true),
-      to_emails: z.array(z.string().email()).optional(),
-      cc_emails: z.array(z.string().email()).optional(),
       attachments: z.array(AttachmentSchema).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -274,26 +243,21 @@ export const ticketsV2Router = createTRPCRouter({
       const reply = await ctx.prisma.hdTicketReply.create({
         data: {
           ticket_id: input.ticket_id,
-          body: input.body,
-          body_html: input.body_html ?? null,
-          reply_type: input.reply_type,
-          is_public: input.is_public,
-          to_emails: input.to_emails ?? [],
-          cc_emails: input.cc_emails ?? [],
-          bcc_emails: [],
-          attachments: input.attachments ?? null,
-          sent_via: 'ui',
-          created_by: userId,
+          content: input.body,
+          content_html: input.body_html ?? null,
+          reply_type: input.reply_type as HdReplyType,
+          author_id: userId,
+          attachments: (input.attachments ?? null) as never,
+          sent_via: 'manual',
         },
       });
 
-      // Set first_responded_at if this is first public reply from agent
-      if (input.is_public && !ticket.first_responded_at) {
+      // Set first_response_at if this is first public reply from agent
+      if (input.is_public && !ticket.first_response_at) {
         await ctx.prisma.hdTicket.update({
           where: { id: input.ticket_id },
           data: {
-            first_responded_at: new Date(),
-            status: ticket.status === 'pending' ? 'in_progress' : ticket.status,
+            first_response_at: new Date(),
           },
         });
       }
@@ -312,7 +276,7 @@ export const ticketsV2Router = createTRPCRouter({
       if (!ticket) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ticket not found' });
       return ctx.prisma.hdTicket.update({
         where: { id: input.id },
-        data: { status: 'resolved', resolved_at: new Date() },
+        data: { status: 'resolved' as HdTicketStatus, resolved_at: new Date() },
       });
     }),
 
@@ -320,25 +284,22 @@ export const ticketsV2Router = createTRPCRouter({
     .input(z.object({ id: z.string(), resolution_note: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
+      const userId = ctx.session.user.id;
       const ticket = await ctx.prisma.hdTicket.findFirst({ where: { id: input.id, organization_id: orgId } });
       if (!ticket) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ticket not found' });
 
       await ctx.prisma.hdTicket.update({
         where: { id: input.id },
-        data: { status: 'closed', closed_at: new Date() },
+        data: { status: 'closed' as HdTicketStatus, closed_at: new Date() },
       });
 
       if (input.resolution_note) {
         await ctx.prisma.hdTicketReply.create({
           data: {
             ticket_id: input.id,
-            body: input.resolution_note,
-            reply_type: 'system',
-            is_public: false,
-            created_by: ctx.session.user.id,
-            to_emails: [],
-            cc_emails: [],
-            bcc_emails: [],
+            content: input.resolution_note,
+            reply_type: 'system' as HdReplyType,
+            author_id: userId,
           },
         });
       }
@@ -356,12 +317,10 @@ export const ticketsV2Router = createTRPCRouter({
       return ctx.prisma.hdTicket.update({
         where: { id: input.id },
         data: {
-          status: 'open',
-          reopened_at: new Date(),
+          status: 'open' as HdTicketStatus,
           reopen_count: { increment: 1 },
           resolved_at: null,
           closed_at: null,
-          sla_status: 'ok',
         },
       });
     }),
@@ -393,6 +352,7 @@ export const ticketsV2Router = createTRPCRouter({
     .input(z.object({ source_id: z.string(), target_id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
+      const userId = ctx.session.user.id;
       if (input.source_id === input.target_id) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot merge a ticket into itself' });
 
       const [source, target] = await Promise.all([
@@ -407,23 +367,19 @@ export const ticketsV2Router = createTRPCRouter({
         data: { ticket_id: input.target_id },
       });
 
-      // Mark source as merged
+      // Mark source as closed
       await ctx.prisma.hdTicket.update({
         where: { id: input.source_id },
-        data: { merged_into_id: input.target_id, status: 'closed', closed_at: new Date() },
+        data: { status: 'closed' as HdTicketStatus, closed_at: new Date() },
       });
 
       // Add system note to target
       await ctx.prisma.hdTicketReply.create({
         data: {
           ticket_id: input.target_id,
-          body: `Ticket ${source.ticket_number} was merged into this ticket.`,
-          reply_type: 'system',
-          is_public: false,
-          created_by: ctx.session.user.id,
-          to_emails: [],
-          cc_emails: [],
-          bcc_emails: [],
+          content: `Ticket ${source.ticket_number} was merged into this ticket.`,
+          reply_type: 'system' as HdReplyType,
+          author_id: userId,
         },
       });
 
@@ -437,6 +393,7 @@ export const ticketsV2Router = createTRPCRouter({
     .input(z.object({ reply_id: z.string(), subject: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
+      const userId = ctx.session.user.id;
       const reply = await ctx.prisma.hdTicketReply.findFirst({ where: { id: input.reply_id } });
       if (!reply) throw new TRPCError({ code: 'NOT_FOUND', message: 'Reply not found' });
 
@@ -450,19 +407,16 @@ export const ticketsV2Router = createTRPCRouter({
       const newTicket = await ctx.prisma.hdTicket.create({
         data: {
           organization_id: orgId,
-          creator_id: ctx.session.user.id,
           ticket_number,
           subject: input.subject,
-          description: reply.body,
+          description: reply.content,
           channel: parentTicket.channel,
           priority: parentTicket.priority,
-          type: parentTicket.type,
-          status: 'open',
-          parent_ticket_id: parentTicket.id,
+          ticket_type: parentTicket.ticket_type,
+          status: 'open' as HdTicketStatus,
           requester_email: parentTicket.requester_email,
           requester_name: parentTicket.requester_name,
           tags: [],
-          cc_emails: [],
         },
       });
 
@@ -471,25 +425,17 @@ export const ticketsV2Router = createTRPCRouter({
         ctx.prisma.hdTicketReply.create({
           data: {
             ticket_id: parentTicket.id,
-            body: `A new ticket ${ticket_number} was split from this thread.`,
-            reply_type: 'system',
-            is_public: false,
-            created_by: ctx.session.user.id,
-            to_emails: [],
-            cc_emails: [],
-            bcc_emails: [],
+            content: `A new ticket ${ticket_number} was split from this thread.`,
+            reply_type: 'system' as HdReplyType,
+            author_id: userId,
           },
         }),
         ctx.prisma.hdTicketReply.create({
           data: {
             ticket_id: newTicket.id,
-            body: `This ticket was split from ${parentTicket.ticket_number}.`,
-            reply_type: 'system',
-            is_public: false,
-            created_by: ctx.session.user.id,
-            to_emails: [],
-            cc_emails: [],
-            bcc_emails: [],
+            content: `This ticket was split from ${parentTicket.ticket_number}.`,
+            reply_type: 'system' as HdReplyType,
+            author_id: userId,
           },
         }),
       ]);
@@ -517,7 +463,7 @@ export const ticketsV2Router = createTRPCRouter({
       const orgId = ctx.session.user.organizationId;
       const result = await ctx.prisma.hdTicket.updateMany({
         where: { id: { in: input.ids }, organization_id: orgId },
-        data: { status: 'closed', closed_at: new Date() },
+        data: { status: 'closed' as HdTicketStatus, closed_at: new Date() },
       });
       return { updated: result.count };
     }),
@@ -526,7 +472,6 @@ export const ticketsV2Router = createTRPCRouter({
     .input(z.object({ ids: z.array(z.string()), tags: z.array(z.string()) }))
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
-      // Individual updates needed since we append tags
       await Promise.all(
         input.ids.map(async (id) => {
           const ticket = await ctx.prisma.hdTicket.findFirst({ where: { id, organization_id: orgId }, select: { tags: true } });
@@ -564,21 +509,14 @@ export const ticketsV2Router = createTRPCRouter({
       const ticket = await ctx.prisma.hdTicket.findFirst({ where: { id: input.ticket_id, organization_id: orgId } });
       if (!ticket) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ticket not found' });
 
-      const [log] = await Promise.all([
-        ctx.prisma.hdTimeLog.create({
-          data: {
-            ticket_id: input.ticket_id,
-            agent_id: ctx.session.user.id,
-            minutes: input.minutes,
-            is_billable: input.is_billable,
-            note: input.note ?? null,
-          },
-        }),
-        ctx.prisma.hdTicket.update({
-          where: { id: input.ticket_id },
-          data: { time_tracked_minutes: { increment: input.minutes } },
-        }),
-      ]);
+      const log = await ctx.prisma.hdTimeLog.create({
+        data: {
+          ticket_id: input.ticket_id,
+          agent_id: ctx.session.user.id,
+          minutes: input.minutes,
+          description: input.note ?? null,
+        },
+      });
 
       return log;
     }),
@@ -597,7 +535,7 @@ export const ticketsV2Router = createTRPCRouter({
     }),
 
   // -------------------------------------------------------------------------
-  // CSAT
+  // CSAT - uses HdSatisfactionSurvey
   // -------------------------------------------------------------------------
   submitCsat: publicProcedure
     .input(z.object({
@@ -609,11 +547,16 @@ export const ticketsV2Router = createTRPCRouter({
       const ticket = await ctx.prisma.hdTicket.findFirst({ where: { id: input.ticket_id } });
       if (!ticket) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ticket not found' });
 
-      return ctx.prisma.hdTicket.update({
-        where: { id: input.ticket_id },
-        data: {
-          satisfaction_rating: input.rating,
-          satisfaction_comment: input.comment ?? null,
+      return ctx.prisma.hdSatisfactionSurvey.upsert({
+        where: { ticket_id: input.ticket_id },
+        create: {
+          ticket_id: input.ticket_id,
+          rating: input.rating,
+          comment: input.comment ?? null,
+        },
+        update: {
+          rating: input.rating,
+          comment: input.comment ?? null,
         },
       });
     }),
@@ -627,16 +570,17 @@ export const ticketsV2Router = createTRPCRouter({
     const today = new Date();
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
-    const [open, inProgress, pending, myTickets, resolvedToday, slaBreached, unassigned] = await Promise.all([
-      ctx.prisma.hdTicket.count({ where: { organization_id: orgId, status: 'open', deleted_at: null } }),
-      ctx.prisma.hdTicket.count({ where: { organization_id: orgId, status: 'in_progress', deleted_at: null } }),
-      ctx.prisma.hdTicket.count({ where: { organization_id: orgId, status: 'pending', deleted_at: null } }),
-      ctx.prisma.hdTicket.count({ where: { organization_id: orgId, assignee_id: userId, status: { in: ['open', 'in_progress'] }, deleted_at: null } }),
-      ctx.prisma.hdTicket.count({ where: { organization_id: orgId, status: 'resolved', resolved_at: { gte: startOfDay }, deleted_at: null } }),
-      ctx.prisma.hdTicket.count({ where: { organization_id: orgId, sla_status: { in: ['breached_first', 'breached_resolution'] }, status: { notIn: ['closed', 'resolved'] }, deleted_at: null } }),
-      ctx.prisma.hdTicket.count({ where: { organization_id: orgId, assignee_id: null, status: { in: ['open', 'in_progress'] }, deleted_at: null } }),
+    const openStatuses: HdTicketStatus[] = ['open', 'pending', 'on_hold', 'new'];
+
+    const [open, pending, myTickets, resolvedToday, slaBreached, unassigned] = await Promise.all([
+      ctx.prisma.hdTicket.count({ where: { organization_id: orgId, status: 'open' as HdTicketStatus, deleted_at: null } }),
+      ctx.prisma.hdTicket.count({ where: { organization_id: orgId, status: 'pending' as HdTicketStatus, deleted_at: null } }),
+      ctx.prisma.hdTicket.count({ where: { organization_id: orgId, assignee_id: userId, status: { in: openStatuses }, deleted_at: null } }),
+      ctx.prisma.hdTicket.count({ where: { organization_id: orgId, status: 'resolved' as HdTicketStatus, resolved_at: { gte: startOfDay }, deleted_at: null } }),
+      ctx.prisma.hdTicket.count({ where: { organization_id: orgId, sla_status: 'breached' as HdSlaStatus, status: { notIn: ['closed', 'resolved'] as HdTicketStatus[] }, deleted_at: null } }),
+      ctx.prisma.hdTicket.count({ where: { organization_id: orgId, assignee_id: null, status: { in: openStatuses }, deleted_at: null } }),
     ]);
 
-    return { open, inProgress, pending, myTickets, resolvedToday, slaBreached, unassigned };
+    return { open, inProgress: pending, pending, myTickets, resolvedToday, slaBreached, unassigned };
   }),
 });

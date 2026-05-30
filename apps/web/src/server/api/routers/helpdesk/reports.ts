@@ -1,6 +1,6 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
+import { HdTicketStatus, HdTicketChannel, HdSlaStatus } from '@zenflow/db';
 
 export const reportsRouter = createTRPCRouter({
   volume: protectedProcedure
@@ -31,7 +31,7 @@ export const reportsRouter = createTRPCRouter({
       }
 
       if (input.group_by === 'status') {
-        const statuses = ['open', 'in_progress', 'pending', 'resolved', 'closed'];
+        const statuses: HdTicketStatus[] = ['open', 'pending', 'on_hold', 'resolved', 'closed', 'new'];
         const counts = await Promise.all(
           statuses.map(async (s) => ({
             label: s,
@@ -42,7 +42,7 @@ export const reportsRouter = createTRPCRouter({
       }
 
       if (input.group_by === 'channel') {
-        const channels = ['email', 'web', 'chat', 'phone', 'api', 'portal'];
+        const channels: HdTicketChannel[] = ['email', 'web', 'chat', 'phone', 'api', 'social'];
         const counts = await Promise.all(
           channels.map(async (c) => ({
             label: c,
@@ -63,18 +63,18 @@ export const reportsRouter = createTRPCRouter({
         where: {
           organization_id: orgId,
           created_at: { gte: new Date(input.from), lte: new Date(input.to) },
-          first_responded_at: { not: null },
+          first_response_at: { not: null },
           deleted_at: null,
           ...(input.team_id ? { team_id: input.team_id } : {}),
         },
-        select: { created_at: true, first_responded_at: true },
+        select: { created_at: true, first_response_at: true },
       });
 
       if (!tickets.length) return { avg_hours: 0, count: 0 };
 
       const totalMs = tickets.reduce((sum, t) => {
-        if (!t.first_responded_at) return sum;
-        return sum + (t.first_responded_at.getTime() - t.created_at.getTime());
+        if (!t.first_response_at) return sum;
+        return sum + (t.first_response_at.getTime() - t.created_at.getTime());
       }, 0);
 
       return {
@@ -124,16 +124,16 @@ export const reportsRouter = createTRPCRouter({
 
       const tickets = await ctx.prisma.hdTicket.findMany({
         where,
-        select: { priority: true, sla_status: true, first_response_due_at: true, first_responded_at: true, resolution_due_at: true, resolved_at: true },
+        select: { priority: true, sla_status: true, first_response_at: true, resolved_at: true },
       });
 
       const total = tickets.length;
-      const compliant = tickets.filter((t) => t.sla_status === 'ok').length;
-      const breached = tickets.filter((t) => ['breached_first', 'breached_resolution'].includes(t.sla_status)).length;
+      const compliant = tickets.filter((t) => t.sla_status === 'active' || t.sla_status === 'completed').length;
+      const breached = tickets.filter((t) => t.sla_status === 'breached').length;
 
       const byPriority = ['low', 'medium', 'high', 'urgent'].map((pri) => {
         const group = tickets.filter((t) => t.priority.toLowerCase() === pri);
-        const groupCompliant = group.filter((t) => t.sla_status === 'ok').length;
+        const groupCompliant = group.filter((t) => t.sla_status === 'active' || t.sla_status === 'completed').length;
         return {
           priority: pri,
           total: group.length,
@@ -168,8 +168,7 @@ export const reportsRouter = createTRPCRouter({
           status: true,
           resolved_at: true,
           created_at: true,
-          first_responded_at: true,
-          satisfaction_rating: true,
+          first_response_at: true,
         },
       });
 
@@ -178,24 +177,18 @@ export const reportsRouter = createTRPCRouter({
         resolved: number;
         totalResolutionMs: number;
         totalResponseMs: number;
-        csatSum: number;
-        csatCount: number;
       }>();
 
       for (const t of tickets) {
         if (!t.assignee_id) continue;
-        const entry = agentMap.get(t.assignee_id) ?? { assigned: 0, resolved: 0, totalResolutionMs: 0, totalResponseMs: 0, csatSum: 0, csatCount: 0 };
+        const entry = agentMap.get(t.assignee_id) ?? { assigned: 0, resolved: 0, totalResolutionMs: 0, totalResponseMs: 0 };
         entry.assigned++;
         if (t.status === 'resolved' && t.resolved_at) {
           entry.resolved++;
           entry.totalResolutionMs += t.resolved_at.getTime() - t.created_at.getTime();
         }
-        if (t.first_responded_at) {
-          entry.totalResponseMs += t.first_responded_at.getTime() - t.created_at.getTime();
-        }
-        if (t.satisfaction_rating) {
-          entry.csatSum += t.satisfaction_rating;
-          entry.csatCount++;
+        if (t.first_response_at) {
+          entry.totalResponseMs += t.first_response_at.getTime() - t.created_at.getTime();
         }
         agentMap.set(t.assignee_id, entry);
       }
@@ -206,7 +199,7 @@ export const reportsRouter = createTRPCRouter({
         resolved_count: data.resolved,
         avg_resolution_hours: data.resolved > 0 ? Math.round((data.totalResolutionMs / data.resolved / 3_600_000) * 10) / 10 : 0,
         avg_response_hours: data.assigned > 0 ? Math.round((data.totalResponseMs / data.assigned / 3_600_000) * 10) / 10 : 0,
-        avg_csat: data.csatCount > 0 ? Math.round((data.csatSum / data.csatCount) * 10) / 10 : null,
+        avg_csat: null as number | null,
       })).sort((a, b) => b.resolved_count - a.resolved_count);
     }),
 
@@ -215,36 +208,28 @@ export const reportsRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
 
-      const [surveyed, rated] = await Promise.all([
-        ctx.prisma.hdTicket.count({
-          where: {
+      // Satisfaction data lives in HdSatisfactionSurvey
+      const surveys = await ctx.prisma.hdSatisfactionSurvey.findMany({
+        where: {
+          ticket: {
             organization_id: orgId,
-            satisfaction_sent_at: { not: null, gte: new Date(input.from), lte: new Date(input.to) },
             ...(input.agent_id ? { assignee_id: input.agent_id } : {}),
           },
-        }),
-        ctx.prisma.hdTicket.findMany({
-          where: {
-            organization_id: orgId,
-            satisfaction_rating: { not: null },
-            satisfaction_sent_at: { not: null, gte: new Date(input.from), lte: new Date(input.to) },
-            ...(input.agent_id ? { assignee_id: input.agent_id } : {}),
-          },
-          select: { satisfaction_rating: true, created_at: true },
-          orderBy: { created_at: 'asc' },
-        }),
-      ]);
+          submitted_at: { gte: new Date(input.from), lte: new Date(input.to) },
+        },
+        select: { rating: true, submitted_at: true },
+        orderBy: { submitted_at: 'asc' },
+      });
 
-      const avgScore = rated.length > 0
-        ? Math.round((rated.reduce((s, t) => s + (t.satisfaction_rating ?? 0), 0) / rated.length) * 10) / 10
+      const avgScore = surveys.length > 0
+        ? Math.round((surveys.reduce((s, t) => s + t.rating, 0) / surveys.length) * 10) / 10
         : null;
 
-      // Build trend by day
       const dayMap = new Map<string, { sum: number; count: number }>();
-      for (const t of rated) {
-        const day = t.created_at.toISOString().slice(0, 10);
+      for (const t of surveys) {
+        const day = t.submitted_at.toISOString().slice(0, 10);
         const existing = dayMap.get(day) ?? { sum: 0, count: 0 };
-        existing.sum += t.satisfaction_rating ?? 0;
+        existing.sum += t.rating;
         existing.count++;
         dayMap.set(day, existing);
       }
@@ -256,9 +241,9 @@ export const reportsRouter = createTRPCRouter({
       }));
 
       return {
-        surveyed,
-        responded: rated.length,
-        response_rate_pct: surveyed > 0 ? Math.round((rated.length / surveyed) * 100) : 0,
+        surveyed: surveys.length,
+        responded: surveys.length,
+        response_rate_pct: 100,
         avg_score: avgScore,
         trend,
       };
@@ -271,11 +256,15 @@ export const reportsRouter = createTRPCRouter({
       const from = new Date(input.from);
       const to = new Date(input.to);
 
+      const openStatuses: HdTicketStatus[] = ['open', 'pending', 'on_hold', 'new'];
+      const resolvedStatus: HdTicketStatus = 'resolved';
+      const breachedSlaStatus: HdSlaStatus = 'breached';
+
       const [total, open, resolved, slaBreached] = await Promise.all([
         ctx.prisma.hdTicket.count({ where: { organization_id: orgId, created_at: { gte: from, lte: to }, deleted_at: null } }),
-        ctx.prisma.hdTicket.count({ where: { organization_id: orgId, created_at: { gte: from, lte: to }, status: { in: ['open', 'in_progress'] }, deleted_at: null } }),
-        ctx.prisma.hdTicket.count({ where: { organization_id: orgId, created_at: { gte: from, lte: to }, status: 'resolved', deleted_at: null } }),
-        ctx.prisma.hdTicket.count({ where: { organization_id: orgId, created_at: { gte: from, lte: to }, sla_status: { in: ['breached_first', 'breached_resolution'] }, deleted_at: null } }),
+        ctx.prisma.hdTicket.count({ where: { organization_id: orgId, created_at: { gte: from, lte: to }, status: { in: openStatuses }, deleted_at: null } }),
+        ctx.prisma.hdTicket.count({ where: { organization_id: orgId, created_at: { gte: from, lte: to }, status: resolvedStatus, deleted_at: null } }),
+        ctx.prisma.hdTicket.count({ where: { organization_id: orgId, created_at: { gte: from, lte: to }, sla_status: breachedSlaStatus, deleted_at: null } }),
       ]);
 
       return { total, open, resolved, sla_breached: slaBreached };

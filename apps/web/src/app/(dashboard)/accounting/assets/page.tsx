@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { useState } from "react";
 import { Plus, Search, Package, X, Calendar, TrendingDown } from "lucide-react";

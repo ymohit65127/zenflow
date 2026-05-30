@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -92,7 +91,7 @@ export const scheduledMessagesRouter = createTRPCRouter({
           ...(input.channel_id ? { channel_id: input.channel_id } : {}),
         },
         include: {
-          channel: { select: { id: true, name: true, type: true } },
+          channel: { select: { id: true, name: true, channel_type: true } },
         },
         orderBy: { scheduled_at: 'asc' },
       });

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -14,10 +13,7 @@ export const phasesRouter = createTRPCRouter({
       if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
 
       return ctx.prisma.projectPhase.findMany({
-        where: { project_id: input.projectId },
-        include: {
-          _count: { select: { tasks: true, milestones: true } },
-        },
+        where: { project_id: input.projectId, deleted_at: null },
         orderBy: { position: 'asc' },
       });
     }),
@@ -49,6 +45,7 @@ export const phasesRouter = createTRPCRouter({
       return ctx.prisma.projectPhase.create({
         data: {
           project_id: input.projectId,
+          organization_id: orgId,
           name: input.name,
           description: input.description ?? null,
           color: input.color ?? '#6B7280',
@@ -69,13 +66,13 @@ export const phasesRouter = createTRPCRouter({
         color: z.string().optional(),
         startDate: z.date().nullable().optional(),
         endDate: z.date().nullable().optional(),
-        status: z.enum(['not_started', 'in_progress', 'completed']).optional(),
+        status: z.enum(['not_started', 'in_progress', 'completed', 'on_hold', 'cancelled']).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
       const phase = await ctx.prisma.projectPhase.findFirst({
-        where: { id: input.id, project: { organization_id: orgId } },
+        where: { id: input.id, organization_id: orgId },
       });
       if (!phase) throw new TRPCError({ code: 'NOT_FOUND', message: 'Phase not found' });
 
@@ -98,15 +95,9 @@ export const phasesRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
       const phase = await ctx.prisma.projectPhase.findFirst({
-        where: { id: input.id, project: { organization_id: orgId } },
+        where: { id: input.id, organization_id: orgId },
       });
       if (!phase) throw new TRPCError({ code: 'NOT_FOUND', message: 'Phase not found' });
-
-      // Unlink tasks from phase
-      await ctx.prisma.task.updateMany({
-        where: { phase_id: input.id },
-        data: { phase_id: null },
-      });
 
       return ctx.prisma.projectPhase.delete({ where: { id: input.id } });
     }),

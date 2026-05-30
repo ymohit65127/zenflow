@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { use, useState } from "react";
 import Link from "next/link";
@@ -8,8 +6,6 @@ import { api } from "@/trpc/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -19,14 +15,12 @@ import {
 } from "@/components/ui/select";
 import {
   ArrowLeft,
-  FileText,
   Plus,
   Trash2,
   Send,
   CheckCircle,
   XCircle,
   Package,
-  Eye,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -37,23 +31,22 @@ function formatCurrency(val: number | null | undefined) {
 
 type LineItem = {
   product_id?: string;
-  name: string;
-  description?: string;
+  description: string;
   quantity: number;
   unit_price: number;
   discount_type?: "percent" | "amount";
-  discount_value: number;
-  tax_rate: number;
+  discount: number;
+  tax_percent: number;
   position: number;
 };
 
 function calcLineTotal(line: LineItem): number {
   const discountAmt =
     line.discount_type === "percent"
-      ? line.quantity * line.unit_price * (line.discount_value / 100)
-      : line.discount_value;
+      ? line.quantity * line.unit_price * (line.discount / 100)
+      : line.discount;
   const subtotal = line.quantity * line.unit_price - discountAmt;
-  return subtotal * (1 + line.tax_rate);
+  return subtotal * (1 + line.tax_percent / 100);
 }
 
 export default function QuoteDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -70,13 +63,12 @@ export default function QuoteDetailPage({ params }: { params: Promise<{ id: stri
     setLines(
       quote.lines.map((l) => ({
         product_id: l.product_id ?? undefined,
-        name: l.name,
-        description: l.description ?? undefined,
+        description: l.description,
         quantity: Number(l.quantity),
         unit_price: Number(l.unit_price),
         discount_type: (l.discount_type as "percent" | "amount") ?? undefined,
-        discount_value: Number(l.discount_value),
-        tax_rate: Number(l.tax_rate),
+        discount: Number(l.discount),
+        tax_percent: Number(l.tax_percent),
         position: l.position,
       }))
     );
@@ -84,32 +76,32 @@ export default function QuoteDetailPage({ params }: { params: Promise<{ id: stri
   }
 
   const updateLinesMutation = api.crm.quotes.updateLines.useMutation({
-    onSuccess: () => { toast.success("Quote lines saved"); refetch(); setLinesChanged(false); },
+    onSuccess: () => { toast.success("Quote lines saved"); void refetch(); setLinesChanged(false); },
     onError: (err) => toast.error(err.message),
   });
 
   const sendMutation = api.crm.quotes.send.useMutation({
-    onSuccess: () => { toast.success("Quote sent"); refetch(); },
+    onSuccess: () => { toast.success("Quote sent"); void refetch(); },
     onError: (err) => toast.error(err.message),
   });
 
   const acceptMutation = api.crm.quotes.markAccepted.useMutation({
-    onSuccess: () => { toast.success("Quote accepted"); refetch(); },
+    onSuccess: () => { toast.success("Quote accepted"); void refetch(); },
     onError: (err) => toast.error(err.message),
   });
 
   const rejectMutation = api.crm.quotes.markRejected.useMutation({
-    onSuccess: () => { toast.success("Quote rejected"); refetch(); },
+    onSuccess: () => { toast.success("Quote rejected"); void refetch(); },
     onError: (err) => toast.error(err.message),
   });
 
   function addLine() {
     const newLine: LineItem = {
-      name: "",
+      description: "",
       quantity: 1,
       unit_price: 0,
-      discount_value: 0,
-      tax_rate: 0,
+      discount: 0,
+      tax_percent: 0,
       position: lines.length,
     };
     setLines([...lines, newLine]);
@@ -134,12 +126,11 @@ export default function QuoteDetailPage({ params }: { params: Promise<{ id: stri
     if (!product) return;
     const newLine: LineItem = {
       product_id: product.id,
-      name: product.name,
-      description: product.description ?? undefined,
+      description: product.name,
       quantity: 1,
       unit_price: Number(product.unit_price),
-      discount_value: 0,
-      tax_rate: Number(product.tax_rate),
+      discount: 0,
+      tax_percent: Number(product.tax_percent),
       position: lines.length,
     };
     setLines([...lines, newLine]);
@@ -149,13 +140,13 @@ export default function QuoteDetailPage({ params }: { params: Promise<{ id: stri
   const subtotal = lines.reduce((sum, l) => sum + l.quantity * l.unit_price, 0);
   const discountTotal = lines.reduce((sum, l) => {
     const d = l.discount_type === "percent"
-      ? l.quantity * l.unit_price * (l.discount_value / 100)
-      : l.discount_value;
+      ? l.quantity * l.unit_price * (l.discount / 100)
+      : l.discount;
     return sum + d;
   }, 0);
   const taxTotal = lines.reduce((sum, l) => {
-    const base = l.quantity * l.unit_price - (l.discount_type === "percent" ? l.quantity * l.unit_price * (l.discount_value / 100) : l.discount_value);
-    return sum + base * l.tax_rate;
+    const base = l.quantity * l.unit_price - (l.discount_type === "percent" ? l.quantity * l.unit_price * (l.discount / 100) : l.discount);
+    return sum + base * (l.tax_percent / 100);
   }, 0);
   const grandTotal = subtotal - discountTotal + taxTotal;
 
@@ -200,22 +191,9 @@ export default function QuoteDetailPage({ params }: { params: Promise<{ id: stri
                 {quote.status}
               </Badge>
             </div>
-            <p className="text-sm text-muted-foreground font-mono mt-0.5">{quote.number}</p>
-            {quote.deal && (
-              <p className="text-sm text-muted-foreground mt-1">
-                Deal:{" "}
-                <Link href={`/crm/deals/${quote.deal.id}`} className="text-brand-500 hover:underline">
-                  {quote.deal.name}
-                </Link>
-              </p>
-            )}
+            <p className="text-sm text-muted-foreground font-mono mt-0.5">{quote.quote_number}</p>
           </div>
           <div className="flex gap-2">
-            {quote.open_count > 0 && (
-              <span className="flex items-center gap-1 text-xs text-muted-foreground mr-2">
-                <Eye className="w-3.5 h-3.5" /> Opened {quote.open_count}x
-              </span>
-            )}
             {isEditable && (
               <Button
                 variant="outline"
@@ -282,7 +260,7 @@ export default function QuoteDetailPage({ params }: { params: Promise<{ id: stri
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/20">
-                <th className="text-left p-3 font-medium text-muted-foreground">Item</th>
+                <th className="text-left p-3 font-medium text-muted-foreground">Description</th>
                 <th className="text-right p-3 font-medium text-muted-foreground w-20">Qty</th>
                 <th className="text-right p-3 font-medium text-muted-foreground w-32">Unit Price</th>
                 <th className="text-right p-3 font-medium text-muted-foreground w-24">Discount</th>
@@ -297,16 +275,13 @@ export default function QuoteDetailPage({ params }: { params: Promise<{ id: stri
                   <td className="p-3">
                     {isEditable ? (
                       <Input
-                        value={line.name}
-                        onChange={(e) => updateLine(idx, { name: e.target.value })}
+                        value={line.description}
+                        onChange={(e) => updateLine(idx, { description: e.target.value })}
                         className="h-7 text-sm"
-                        placeholder="Item name"
+                        placeholder="Item description"
                       />
                     ) : (
-                      <div>
-                        <p className="font-medium">{line.name}</p>
-                        {line.description && <p className="text-xs text-muted-foreground">{line.description}</p>}
-                      </div>
+                      <p className="font-medium">{line.description}</p>
                     )}
                   </td>
                   <td className="p-3">
@@ -342,12 +317,12 @@ export default function QuoteDetailPage({ params }: { params: Promise<{ id: stri
                       <Input
                         type="number"
                         min={0}
-                        value={line.discount_value}
-                        onChange={(e) => updateLine(idx, { discount_value: Number(e.target.value) })}
+                        value={line.discount}
+                        onChange={(e) => updateLine(idx, { discount: Number(e.target.value) })}
                         className="h-7 text-sm text-right"
                       />
                     ) : (
-                      <span>{line.discount_value}{line.discount_type === "percent" ? "%" : ""}</span>
+                      <span>{line.discount}{line.discount_type === "percent" ? "%" : ""}</span>
                     )}
                   </td>
                   <td className="p-3 text-right">
@@ -355,14 +330,14 @@ export default function QuoteDetailPage({ params }: { params: Promise<{ id: stri
                       <Input
                         type="number"
                         min={0}
-                        max={1}
+                        max={100}
                         step={0.01}
-                        value={line.tax_rate}
-                        onChange={(e) => updateLine(idx, { tax_rate: Number(e.target.value) })}
+                        value={line.tax_percent}
+                        onChange={(e) => updateLine(idx, { tax_percent: Number(e.target.value) })}
                         className="h-7 text-sm text-right"
                       />
                     ) : (
-                      <span>{(line.tax_rate * 100).toFixed(0)}%</span>
+                      <span>{line.tax_percent.toFixed(0)}%</span>
                     )}
                   </td>
                   <td className="p-3 text-right font-semibold">

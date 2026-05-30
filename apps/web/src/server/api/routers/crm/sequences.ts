@@ -1,14 +1,13 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { Prisma } from '@prisma/client';
 
 const SequenceStepSchema = z.object({
   position: z.number().int().min(0),
   type: z.enum(['email', 'sms', 'call', 'task', 'wait']),
-  wait_days: z.number().int().min(0).default(0),
-  wait_hours: z.number().int().min(0).default(0),
-  wait_until_time: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  delay_days: z.number().int().min(0).default(0),
+  delay_hours: z.number().int().min(0).default(0),
   subject: z.string().max(500).optional(),
   body: z.string().optional(),
   task_title: z.string().max(255).optional(),
@@ -31,7 +30,6 @@ export const crmSequencesRouter = createTRPCRouter({
         },
         include: {
           _count: { select: { steps: true, enrollments: true } },
-          creator: { select: { id: true, name: true } },
         },
         orderBy: { created_at: 'desc' },
       });
@@ -45,19 +43,18 @@ export const crmSequencesRouter = createTRPCRouter({
         where: { id: input.id, organization_id: orgId },
         include: {
           steps: { orderBy: { position: 'asc' } },
-          creator: { select: { id: true, name: true } },
           _count: { select: { enrollments: true } },
         },
       });
       if (!seq) throw new TRPCError({ code: 'NOT_FOUND', message: 'Sequence not found' });
 
-      const [activeCount, completedCount, exitedCount] = await Promise.all([
+      const [activeCount, completedCount, unenrolledCount] = await Promise.all([
         ctx.prisma.crmSequenceEnrollment.count({ where: { sequence_id: input.id, status: 'active' } }),
         ctx.prisma.crmSequenceEnrollment.count({ where: { sequence_id: input.id, status: 'completed' } }),
-        ctx.prisma.crmSequenceEnrollment.count({ where: { sequence_id: input.id, status: 'exited' } }),
+        ctx.prisma.crmSequenceEnrollment.count({ where: { sequence_id: input.id, status: 'unenrolled' } }),
       ]);
 
-      return { ...seq, stats: { active: activeCount, completed: completedCount, exited: exitedCount } };
+      return { ...seq, stats: { active: activeCount, completed: completedCount, exited: unenrolledCount } };
     }),
 
   create: protectedProcedure
@@ -65,8 +62,7 @@ export const crmSequencesRouter = createTRPCRouter({
       z.object({
         name: z.string().min(1).max(255),
         description: z.string().optional(),
-        goal: z.string().max(500).optional(),
-        trigger_type: z.enum(['manual', 'lead_created', 'lead_score', 'deal_stage']).default('manual'),
+        trigger_type: z.enum(['manual', 'deal_stage_change', 'lead_status_change', 'form_submission']).default('manual'),
         trigger_config: z.record(z.unknown()).optional(),
       })
     )
@@ -80,9 +76,8 @@ export const crmSequencesRouter = createTRPCRouter({
           created_by: userId,
           name: input.name,
           description: input.description ?? null,
-          goal: input.goal ?? null,
           trigger_type: input.trigger_type,
-          trigger_config: input.trigger_config ?? null,
+          trigger_config: input.trigger_config !== undefined ? input.trigger_config as Prisma.InputJsonValue : Prisma.JsonNull,
           status: 'draft',
         },
       });
@@ -95,8 +90,7 @@ export const crmSequencesRouter = createTRPCRouter({
         data: z.object({
           name: z.string().min(1).max(255).optional(),
           description: z.string().optional(),
-          goal: z.string().max(500).optional(),
-          trigger_type: z.enum(['manual', 'lead_created', 'lead_score', 'deal_stage']).optional(),
+          trigger_type: z.enum(['manual', 'deal_stage_change', 'lead_status_change', 'form_submission']).optional(),
           trigger_config: z.record(z.unknown()).optional(),
         }),
       })
@@ -113,9 +107,8 @@ export const crmSequencesRouter = createTRPCRouter({
         data: {
           ...(input.data.name !== undefined && { name: input.data.name }),
           ...(input.data.description !== undefined && { description: input.data.description ?? null }),
-          ...(input.data.goal !== undefined && { goal: input.data.goal ?? null }),
           ...(input.data.trigger_type !== undefined && { trigger_type: input.data.trigger_type }),
-          ...(input.data.trigger_config !== undefined && { trigger_config: input.data.trigger_config ?? null }),
+          ...(input.data.trigger_config !== undefined && { trigger_config: input.data.trigger_config !== undefined ? input.data.trigger_config as Prisma.InputJsonValue : Prisma.JsonNull }),
         },
       });
     }),
@@ -140,19 +133,16 @@ export const crmSequencesRouter = createTRPCRouter({
           data: input.steps.map((step) => ({
             sequence_id: input.sequenceId,
             position: step.position,
-            type: step.type,
-            wait_days: step.wait_days,
-            wait_hours: step.wait_hours,
-            wait_until_time: step.wait_until_time ?? null,
-            subject: step.subject ?? null,
-            body: step.body ?? null,
-            task_title: step.task_title ?? null,
-            task_type: step.task_type ?? null,
+            step_type: step.type,
+            delay_days: step.delay_days,
+            delay_hours: step.delay_hours,
+            config: {
+              subject: step.subject ?? null,
+              body: step.body ?? null,
+              task_title: step.task_title ?? null,
+              task_type: step.task_type ?? null,
+            },
           })),
-        }),
-        ctx.prisma.crmSequence.update({
-          where: { id: input.sequenceId },
-          data: { step_count: input.steps.length },
         }),
       ]);
 
@@ -185,10 +175,6 @@ export const crmSequencesRouter = createTRPCRouter({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
-      await ctx.prisma.crmSequenceEnrollment.updateMany({
-        where: { sequence_id: input.id, status: 'active' },
-        data: { status: 'paused' },
-      });
       return ctx.prisma.crmSequence.update({
         where: { id: input.id, organization_id: orgId },
         data: { status: 'paused' },
@@ -199,8 +185,8 @@ export const crmSequencesRouter = createTRPCRouter({
     .input(
       z.object({
         sequenceId: z.string(),
-        contactIds: z.array(z.string()),
-        dealId: z.string().optional(),
+        entityType: z.enum(['contact', 'lead', 'deal', 'account']).default('contact'),
+        entityIds: z.array(z.string()),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -212,56 +198,45 @@ export const crmSequencesRouter = createTRPCRouter({
       });
       if (!seq) throw new TRPCError({ code: 'NOT_FOUND', message: 'Active sequence not found' });
 
-      // Check for unsubscribed or already enrolled
-      const [unsubscribed, alreadyEnrolled] = await Promise.all([
-        ctx.prisma.crmContact.findMany({
-          where: { id: { in: input.contactIds }, unsubscribed: true },
-          select: { id: true },
-        }),
-        ctx.prisma.crmSequenceEnrollment.findMany({
-          where: { sequence_id: input.sequenceId, contact_id: { in: input.contactIds }, status: 'active' },
-          select: { contact_id: true },
-        }),
-      ]);
+      // Check for already enrolled entities
+      const alreadyEnrolled = await ctx.prisma.crmSequenceEnrollment.findMany({
+        where: {
+          sequence_id: input.sequenceId,
+          entity_type: input.entityType,
+          entity_id: { in: input.entityIds },
+          status: 'active',
+        },
+        select: { entity_id: true },
+      });
 
-      const skipIds = new Set([
-        ...unsubscribed.map((c) => c.id),
-        ...alreadyEnrolled.map((e) => e.contact_id),
-      ]);
-
-      const eligible = input.contactIds.filter((id) => !skipIds.has(id));
+      const enrolledIds = new Set(alreadyEnrolled.map((e) => e.entity_id));
+      const eligible = input.entityIds.filter((id) => !enrolledIds.has(id));
 
       if (eligible.length === 0) {
-        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'All contacts are already enrolled or unsubscribed' });
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'All entities are already enrolled' });
       }
 
       await ctx.prisma.crmSequenceEnrollment.createMany({
-        data: eligible.map((contactId) => ({
+        data: eligible.map((entityId) => ({
           sequence_id: input.sequenceId,
-          contact_id: contactId,
-          deal_id: input.dealId ?? null,
+          entity_type: input.entityType,
+          entity_id: entityId,
           enrolled_by: userId,
           status: 'active',
-          current_step_position: 0,
-          next_step_at: new Date(),
+          current_step: 0,
         })),
         skipDuplicates: true,
       });
 
-      await ctx.prisma.crmSequence.update({
-        where: { id: input.sequenceId },
-        data: { enrolled_count: { increment: eligible.length } },
-      });
-
-      return { enrolled: eligible.length, skipped: skipIds.size };
+      return { enrolled: eligible.length, skipped: enrolledIds.size };
     }),
 
   exit: protectedProcedure
-    .input(z.object({ enrollmentId: z.string(), reason: z.string().max(255) }))
+    .input(z.object({ enrollmentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       return ctx.prisma.crmSequenceEnrollment.update({
         where: { id: input.enrollmentId },
-        data: { status: 'exited', exited_at: new Date(), exit_reason: input.reason },
+        data: { status: 'unenrolled', unenrolled_at: new Date() },
       });
     }),
 
@@ -269,7 +244,7 @@ export const crmSequencesRouter = createTRPCRouter({
     .input(
       z.object({
         sequenceId: z.string(),
-        status: z.enum(['active', 'paused', 'completed', 'exited', 'bounced']).optional(),
+        status: z.enum(['active', 'completed', 'unenrolled', 'bounced', 'replied']).optional(),
         cursor: z.string().optional(),
         limit: z.number().int().min(1).max(100).default(25),
       })
@@ -283,10 +258,6 @@ export const crmSequencesRouter = createTRPCRouter({
         },
         take: (input.limit ?? 25) + 1,
         orderBy: { enrolled_at: 'desc' },
-        include: {
-          contact: { select: { id: true, first_name: true, last_name: true, email: true } },
-          enrolled_by_user: { select: { id: true, name: true } },
-        },
       });
 
       let nextCursor: string | undefined;

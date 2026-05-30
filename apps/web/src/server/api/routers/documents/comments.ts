@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -13,13 +12,13 @@ export const commentsRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
-      const doc = await ctx.prisma.document.findFirst({
+      const doc = await ctx.prisma.docV2.findFirst({
         where: { id: input.documentId, organization_id: orgId, deleted_at: null },
         select: { id: true },
       });
       if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
 
-      return ctx.prisma.docComment.findMany({
+      const comments = await ctx.prisma.docComment.findMany({
         where: {
           document_id: input.documentId,
           deleted_at: null,
@@ -27,17 +26,31 @@ export const commentsRouter = createTRPCRouter({
           ...(!input.showResolved ? { is_resolved: false } : {}),
         },
         include: {
-          author: { select: { id: true, name: true, avatar_url: true } },
           replies: {
             where: { deleted_at: null },
-            include: {
-              author: { select: { id: true, name: true, avatar_url: true } },
-            },
             orderBy: { created_at: 'asc' },
           },
         },
         orderBy: { created_at: 'asc' },
       });
+
+      // Fetch user info for all author ids
+      const allUserIds = [
+        ...comments.map((c) => c.created_by),
+        ...comments.flatMap((c) => c.replies.map((r) => r.created_by)),
+      ];
+      const uniqueUserIds = [...new Set(allUserIds)];
+      const users = await ctx.prisma.user.findMany({
+        where: { id: { in: uniqueUserIds } },
+        select: { id: true, name: true, avatar_url: true },
+      });
+      const userMap = new Map(users.map((u) => [u.id, u]));
+
+      return comments.map((c) => ({
+        ...c,
+        author: userMap.get(c.created_by) ?? null,
+        replies: c.replies.map((r) => ({ ...r, author: userMap.get(r.created_by) ?? null })),
+      }));
     }),
 
   create: protectedProcedure
@@ -55,13 +68,13 @@ export const commentsRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id as string;
       const orgId = ctx.session.user.organizationId as string;
-      const doc = await ctx.prisma.document.findFirst({
+      const doc = await ctx.prisma.docV2.findFirst({
         where: { id: input.documentId, organization_id: orgId, deleted_at: null },
         select: { id: true },
       });
       if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
 
-      return ctx.prisma.docComment.create({
+      const comment = await ctx.prisma.docComment.create({
         data: {
           document_id: input.documentId,
           parent_comment_id: input.parentCommentId ?? null,
@@ -72,10 +85,12 @@ export const commentsRouter = createTRPCRouter({
           mentions: input.mentions ?? [],
           created_by: userId,
         },
-        include: {
-          author: { select: { id: true, name: true, avatar_url: true } },
-        },
       });
+      const author = await ctx.prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, name: true, avatar_url: true },
+      });
+      return { ...comment, author: author ?? null };
     }),
 
   update: protectedProcedure

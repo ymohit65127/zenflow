@@ -1,17 +1,14 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 
 const ProductCreateSchema = z.object({
   name: z.string().min(1).max(255),
-  code: z.string().max(100).optional(),
+  sku: z.string().max(100).optional(),
   description: z.string().optional(),
   unit_price: z.number().min(0),
   currency: z.string().length(3).default('USD'),
-  tax_rate: z.number().min(0).max(1).default(0),
-  unit: z.string().max(50).optional(),
-  category: z.string().max(100).optional(),
+  tax_percent: z.number().min(0).max(100).default(0),
   is_active: z.boolean().default(true),
 });
 
@@ -22,7 +19,6 @@ export const crmProductsRouter = createTRPCRouter({
     .input(
       z.object({
         isActive: z.boolean().optional(),
-        category: z.string().optional(),
         search: z.string().optional(),
         cursor: z.string().optional(),
         limit: z.number().int().min(1).max(100).default(25),
@@ -35,11 +31,10 @@ export const crmProductsRouter = createTRPCRouter({
           organization_id: orgId,
           deleted_at: null,
           ...(input.isActive !== undefined && { is_active: input.isActive }),
-          ...(input.category && { category: input.category }),
           ...(input.search && {
             OR: [
               { name: { contains: input.search, mode: 'insensitive' } },
-              { code: { contains: input.search, mode: 'insensitive' } },
+              { sku: { contains: input.search, mode: 'insensitive' } },
               { description: { contains: input.search, mode: 'insensitive' } },
             ],
           }),
@@ -57,16 +52,6 @@ export const crmProductsRouter = createTRPCRouter({
 
       return { products, nextCursor };
     }),
-
-  getCategories: protectedProcedure.query(async ({ ctx }) => {
-    const orgId = ctx.session.user.organizationId as string;
-    const result = await ctx.prisma.crmProduct.findMany({
-      where: { organization_id: orgId, deleted_at: null, category: { not: null } },
-      select: { category: true },
-      distinct: ['category'],
-    });
-    return result.map((r) => r.category).filter(Boolean) as string[];
-  }),
 
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
@@ -87,13 +72,11 @@ export const crmProductsRouter = createTRPCRouter({
         data: {
           organization_id: orgId,
           name: input.name,
-          code: input.code ?? null,
+          sku: input.sku ?? null,
           description: input.description ?? null,
           unit_price: input.unit_price,
           currency: input.currency,
-          tax_rate: input.tax_rate,
-          unit: input.unit ?? null,
-          category: input.category ?? null,
+          tax_percent: input.tax_percent,
           is_active: input.is_active,
         },
       });
@@ -113,13 +96,11 @@ export const crmProductsRouter = createTRPCRouter({
         where: { id: input.id },
         data: {
           ...(data.name !== undefined && { name: data.name }),
-          ...(data.code !== undefined && { code: data.code ?? null }),
+          ...(data.sku !== undefined && { sku: data.sku ?? null }),
           ...(data.description !== undefined && { description: data.description ?? null }),
           ...(data.unit_price !== undefined && { unit_price: data.unit_price }),
           ...(data.currency !== undefined && { currency: data.currency }),
-          ...(data.tax_rate !== undefined && { tax_rate: data.tax_rate }),
-          ...(data.unit !== undefined && { unit: data.unit ?? null }),
-          ...(data.category !== undefined && { category: data.category ?? null }),
+          ...(data.tax_percent !== undefined && { tax_percent: data.tax_percent }),
           ...(data.is_active !== undefined && { is_active: data.is_active }),
         },
       });
@@ -145,13 +126,11 @@ export const crmProductsRouter = createTRPCRouter({
         rows: z.array(
           z.object({
             name: z.string().min(1),
-            code: z.string().optional(),
+            sku: z.string().optional(),
             description: z.string().optional(),
             unit_price: z.number().min(0),
             currency: z.string().length(3).default('USD'),
-            tax_rate: z.number().min(0).max(1).default(0),
-            unit: z.string().optional(),
-            category: z.string().optional(),
+            tax_percent: z.number().min(0).max(100).default(0),
           })
         ),
       })
@@ -162,13 +141,11 @@ export const crmProductsRouter = createTRPCRouter({
         data: input.rows.map((row) => ({
           organization_id: orgId,
           name: row.name,
-          code: row.code ?? null,
+          sku: row.sku ?? null,
           description: row.description ?? null,
           unit_price: row.unit_price,
           currency: row.currency,
-          tax_rate: row.tax_rate,
-          unit: row.unit ?? null,
-          category: row.category ?? null,
+          tax_percent: row.tax_percent,
           is_active: true,
         })),
         skipDuplicates: true,

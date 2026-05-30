@@ -1,23 +1,21 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 
 export const reportsRouter = createTRPCRouter({
-  // Stock valuation: sum up total_value and average_cost per product/warehouse
+  // Stock valuation: sum up avg_cost * quantity per product/warehouse
   stockValuation: protectedProcedure
     .input(
       z.object({
         warehouse_id: z.string().optional(),
-        as_of_date: z.string().optional(), // ISO date — filters movements up to this date
       })
     )
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const levels = await ctx.prisma.invStockLevel.findMany({
         where: {
-          org_id: orgId,
+          organization_id: orgId,
           ...(input.warehouse_id ? { warehouse_id: input.warehouse_id } : {}),
-          quantity_on_hand: { gt: 0 },
+          quantity: { gt: 0 },
         },
         include: {
           product: {
@@ -28,7 +26,7 @@ export const reportsRouter = createTRPCRouter({
         orderBy: [{ warehouse: { name: 'asc' } }, { product: { name: 'asc' } }],
       });
 
-      const totalValue = levels.reduce((sum, l) => sum + Number(l.total_value), 0);
+      const totalValue = levels.reduce((sum, l) => sum + Number(l.quantity) * Number(l.avg_cost), 0);
       const totalItems = levels.length;
 
       const byWarehouse: Record<string, { name: string; value: number; skus: number }> = {};
@@ -36,7 +34,7 @@ export const reportsRouter = createTRPCRouter({
         if (!byWarehouse[l.warehouse_id]) {
           byWarehouse[l.warehouse_id] = { name: l.warehouse.name, value: 0, skus: 0 };
         }
-        byWarehouse[l.warehouse_id]!.value += Number(l.total_value);
+        byWarehouse[l.warehouse_id]!.value += Number(l.quantity) * Number(l.avg_cost);
         byWarehouse[l.warehouse_id]!.skus += 1;
       }
 
@@ -46,9 +44,9 @@ export const reportsRouter = createTRPCRouter({
           product_name: l.product.name,
           sku: l.product.sku,
           warehouse_name: l.warehouse.name,
-          quantity_on_hand: Number(l.quantity_on_hand),
-          average_cost: Number(l.average_cost),
-          total_value: Number(l.total_value),
+          quantity_on_hand: Number(l.quantity),
+          average_cost: Number(l.avg_cost),
+          total_value: Number(l.quantity) * Number(l.avg_cost),
           unit_of_measure: String(l.product.unit_of_measure),
         })),
         totalValue,
@@ -70,9 +68,9 @@ export const reportsRouter = createTRPCRouter({
       const movements = await ctx.prisma.invStockMovement.groupBy({
         by: ['product_id'],
         where: {
-          org_id: orgId,
-          movement_type: 'sale_delivery',
-          movement_date: {
+          organization_id: orgId,
+          movement_type: 'issue',
+          moved_at: {
             gte: new Date(input.from_date),
             lte: new Date(input.to_date),
           },
@@ -90,11 +88,11 @@ export const reportsRouter = createTRPCRouter({
       });
       const productMap = new Map(products.map((p) => [p.id, p]));
 
-      const totalValue = movements.reduce((s, m) => s + Number(m._sum.total_cost ?? 0), 0);
+      const totalValue = movements.reduce((s, m) => s + Number(m._sum?.total_cost ?? 0), 0);
       let cumulative = 0;
 
       const items = movements.map((m) => {
-        const usageValue = Number(m._sum.total_cost ?? 0);
+        const usageValue = Number(m._sum?.total_cost ?? 0);
         cumulative += usageValue;
         const cumulativePct = totalValue > 0 ? (cumulative / totalValue) * 100 : 0;
         const product = productMap.get(m.product_id);
@@ -112,7 +110,7 @@ export const reportsRouter = createTRPCRouter({
       return { items, total_value: totalValue };
     }),
 
-  // Slow-moving: products with no sale_delivery movements in last N days
+  // Slow-moving: products with no outbound movements in last N days
   slowMoving: protectedProcedure
     .input(
       z.object({
@@ -125,11 +123,11 @@ export const reportsRouter = createTRPCRouter({
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - input.days_no_movement);
 
-      // Products with stock but no recent sale_delivery
+      // Products with stock but no recent outbound movement
       const levelsWithStock = await ctx.prisma.invStockLevel.findMany({
         where: {
-          org_id: orgId,
-          quantity_on_hand: { gt: 0 },
+          organization_id: orgId,
+          quantity: { gt: 0 },
           ...(input.warehouse_id ? { warehouse_id: input.warehouse_id } : {}),
         },
         include: {
@@ -140,9 +138,9 @@ export const reportsRouter = createTRPCRouter({
 
       const recentMovements = await ctx.prisma.invStockMovement.findMany({
         where: {
-          org_id: orgId,
-          movement_type: 'sale_delivery',
-          movement_date: { gte: cutoff },
+          organization_id: orgId,
+          movement_type: 'issue',
+          moved_at: { gte: cutoff },
         },
         select: { product_id: true },
         distinct: ['product_id'],
@@ -157,15 +155,13 @@ export const reportsRouter = createTRPCRouter({
           sku: l.product.sku,
           product_name: l.product.name,
           warehouse_name: l.warehouse.name,
-          quantity_on_hand: Number(l.quantity_on_hand),
-          total_value: Number(l.total_value),
-          last_movement_at: l.last_movement_at,
-          days_since_movement: l.last_movement_at
-            ? Math.floor((Date.now() - l.last_movement_at.getTime()) / 86400000)
-            : null,
+          quantity_on_hand: Number(l.quantity),
+          total_value: Number(l.quantity) * Number(l.avg_cost),
+          last_updated: l.updated_at,
+          days_since_update: Math.floor((Date.now() - l.updated_at.getTime()) / 86400000),
         })),
         days_threshold: input.days_no_movement,
-        total_value_at_risk: slowItems.reduce((s, l) => s + Number(l.total_value), 0),
+        total_value_at_risk: slowItems.reduce((s, l) => s + Number(l.quantity) * Number(l.avg_cost), 0),
       };
     }),
 
@@ -173,16 +169,15 @@ export const reportsRouter = createTRPCRouter({
   reorderReport: protectedProcedure.query(async ({ ctx }) => {
     const orgId = ctx.session.user.organizationId as string;
     const products = await ctx.prisma.invProduct.findMany({
-      where: { org_id: orgId, is_active: true, deleted_at: null, reorder_point: { not: null } },
+      where: { organization_id: orgId, is_active: true, deleted_at: null, reorder_point: { not: null } },
       include: {
-        stock_levels: { where: { org_id: orgId } },
-        supplier_prices: { where: { is_preferred: true }, take: 1 },
+        stock_levels: { where: { organization_id: orgId } },
       },
     });
 
     return products
       .map((p) => {
-        const totalOnHand = p.stock_levels.reduce((s, l) => s + Number(l.quantity_on_hand), 0);
+        const totalOnHand = p.stock_levels.reduce((s, l) => s + Number(l.quantity), 0);
         const reorderPoint = Number(p.reorder_point ?? 0);
         if (totalOnHand > reorderPoint) return null;
         return {
@@ -191,10 +186,8 @@ export const reportsRouter = createTRPCRouter({
           name: p.name,
           current_stock: totalOnHand,
           reorder_point: reorderPoint,
-          reorder_quantity: Number(p.reorder_quantity ?? reorderPoint),
-          preferred_vendor_id: p.preferred_vendor_id ?? null,
-          lead_time_days: p.supplier_prices[0]?.lead_time_days ?? 7,
-          purchase_price: Number(p.purchase_price ?? 0),
+          reorder_qty: Number(p.reorder_qty ?? reorderPoint),
+          purchase_price: Number(p.cost_price ?? 0),
         };
       })
       .filter(Boolean);
@@ -216,11 +209,11 @@ export const reportsRouter = createTRPCRouter({
       const [items, total] = await Promise.all([
         ctx.prisma.invStockMovement.findMany({
           where: {
-            org_id: orgId,
+            organization_id: orgId,
             product_id: input.product_id,
             ...(input.from_date || input.to_date
               ? {
-                  movement_date: {
+                  moved_at: {
                     ...(input.from_date ? { gte: new Date(input.from_date) } : {}),
                     ...(input.to_date ? { lte: new Date(input.to_date) } : {}),
                   },
@@ -228,15 +221,14 @@ export const reportsRouter = createTRPCRouter({
               : {}),
           },
           include: {
-            warehouse: { select: { id: true, name: true } },
-            lot: { select: { id: true, lot_number: true } },
+            product: { select: { id: true, name: true, sku: true } },
           },
           take: input.limit,
           skip: input.offset,
-          orderBy: { movement_date: 'desc' },
+          orderBy: { moved_at: 'desc' },
         }),
         ctx.prisma.invStockMovement.count({
-          where: { org_id: orgId, product_id: input.product_id },
+          where: { organization_id: orgId, product_id: input.product_id },
         }),
       ]);
       return { items, total };

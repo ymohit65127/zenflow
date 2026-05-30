@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { useState } from "react";
 import {
@@ -163,7 +161,7 @@ function CreateTransferDialog({ onClose }: { onClose: () => void }) {
                 notes: notes || undefined,
                 lines: lines.map((l) => ({
                   product_id: l.product_id,
-                  quantity_requested: l.quantity_requested,
+                  quantity: l.quantity_requested,
                   unit_cost: l.unit_cost,
                 })),
               })
@@ -268,8 +266,8 @@ export default function TransfersPage() {
                       return (
                         <tr key={t.id} className="hover:bg-muted/20">
                           <td className="px-5 py-4 font-mono text-sm font-semibold">{t.transfer_number}</td>
-                          <td className="px-5 py-4 text-sm">{t.from_warehouse.name}</td>
-                          <td className="px-5 py-4 text-sm">{t.to_warehouse.name}</td>
+                          <td className="px-5 py-4 text-sm">{t.from_warehouse?.name ?? '—'}</td>
+                          <td className="px-5 py-4 text-sm">{t.to_warehouse?.name ?? '—'}</td>
                           <td className="px-5 py-4 text-sm text-muted-foreground">{t._count.lines}</td>
                           <td className="px-5 py-4">
                             <span className={cn("inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium capitalize", statusConf.colors)}>

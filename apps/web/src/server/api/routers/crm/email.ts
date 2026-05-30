@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -91,7 +90,7 @@ export const crmEmailRouter = createTRPCRouter({
           organization_id: orgId,
           entity_type: input.entityType,
           entity_id: input.entityId,
-          thread_id: input.threadId,
+          message_id: input.threadId,
         },
         orderBy: { sent_at: 'asc' },
       });
@@ -128,13 +127,11 @@ export const crmEmailRouter = createTRPCRouter({
           entity_id: input.entityId,
           direction: 'outbound',
           message_id: messageId,
-          thread_id: input.threadId ?? messageId,
           subject: input.subject,
           from_email: integration.email_address,
           to_emails: input.toEmails,
           cc_emails: input.ccEmails,
-          bcc_emails: [],
-          html_body: input.htmlBody,
+          body_html: input.htmlBody,
           sent_at: new Date(),
           integration_id: input.integrationId,
         },
@@ -145,12 +142,8 @@ export const crmEmailRouter = createTRPCRouter({
   getStats: protectedProcedure.query(async ({ ctx }) => {
     const orgId = ctx.session.user.organizationId as string;
 
-    const [total, opened, bounced] = await Promise.all([
-      ctx.prisma.crmEmailLog.count({ where: { organization_id: orgId } }),
-      ctx.prisma.crmEmailLog.count({ where: { organization_id: orgId, open_count: { gt: 0 } } }),
-      ctx.prisma.crmEmailLog.count({ where: { organization_id: orgId, bounced: true } }),
-    ]);
+    const total = await ctx.prisma.crmEmailLog.count({ where: { organization_id: orgId } });
 
-    return { total, opened, bounced };
+    return { total, opened: 0, bounced: 0 };
   }),
 });

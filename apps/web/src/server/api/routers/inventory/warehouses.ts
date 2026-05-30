@@ -1,13 +1,13 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { Prisma } from '@zenflow/db';
 
 export const warehousesRouter = createTRPCRouter({
   list: protectedProcedure.query(async ({ ctx }) => {
     const orgId = ctx.session.user.organizationId as string;
     return ctx.prisma.invWarehouse.findMany({
-      where: { org_id: orgId, is_active: true },
+      where: { organization_id: orgId, is_active: true },
       include: {
         _count: { select: { locations: true, stock_levels: true } },
       },
@@ -20,7 +20,7 @@ export const warehousesRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const wh = await ctx.prisma.invWarehouse.findFirst({
-        where: { id: input.id, org_id: orgId },
+        where: { id: input.id, organization_id: orgId },
         include: {
           locations: {
             where: { parent_id: null },
@@ -47,7 +47,6 @@ export const warehousesRouter = createTRPCRouter({
       z.object({
         name: z.string().min(1),
         code: z.string().min(1).toUpperCase(),
-        description: z.string().optional(),
         address: z
           .object({
             line1: z.string().optional(),
@@ -57,34 +56,22 @@ export const warehousesRouter = createTRPCRouter({
             postal_code: z.string().optional(),
           })
           .optional(),
-        allow_negative_stock: z.boolean().default(false),
-        is_default: z.boolean().default(false),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const existing = await ctx.prisma.invWarehouse.findFirst({
-        where: { org_id: orgId, code: input.code },
+        where: { organization_id: orgId, code: input.code },
       });
       if (existing)
         throw new TRPCError({ code: 'CONFLICT', message: 'Warehouse code already exists' });
 
-      if (input.is_default) {
-        await ctx.prisma.invWarehouse.updateMany({
-          where: { org_id: orgId },
-          data: { is_default: false },
-        });
-      }
-
       return ctx.prisma.invWarehouse.create({
         data: {
-          org_id: orgId,
+          organization_id: orgId,
           name: input.name,
           code: input.code,
-          description: input.description ?? null,
-          address: input.address ?? null,
-          allow_negative_stock: input.allow_negative_stock,
-          is_default: input.is_default,
+          address: input.address !== undefined ? input.address as Prisma.InputJsonValue : Prisma.JsonNull,
         },
       });
     }),
@@ -94,29 +81,25 @@ export const warehousesRouter = createTRPCRouter({
       z.object({
         id: z.string(),
         name: z.string().optional(),
-        description: z.string().optional(),
         address: z.record(z.any()).optional(),
-        allow_negative_stock: z.boolean().optional(),
-        is_default: z.boolean().optional(),
         is_active: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
-      const { id, ...data } = input;
+      const { id, address, ...rest } = input;
       const existing = await ctx.prisma.invWarehouse.findFirst({
-        where: { id, org_id: orgId },
+        where: { id, organization_id: orgId },
       });
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Warehouse not found' });
 
-      if (data.is_default) {
-        await ctx.prisma.invWarehouse.updateMany({
-          where: { org_id: orgId, id: { not: id } },
-          data: { is_default: false },
-        });
-      }
-
-      return ctx.prisma.invWarehouse.update({ where: { id }, data });
+      return ctx.prisma.invWarehouse.update({
+        where: { id },
+        data: {
+          ...rest,
+          ...(address !== undefined ? { address: address as Prisma.InputJsonValue } : {}),
+        },
+      });
     }),
 
   // Location CRUD
@@ -127,15 +110,13 @@ export const warehousesRouter = createTRPCRouter({
         parent_id: z.string().optional(),
         name: z.string().min(1),
         code: z.string().min(1),
-        location_type: z.enum(['zone', 'aisle', 'rack', 'bin', 'shelf']),
-        capacity: z.number().optional(),
-        capacity_unit: z.string().optional(),
+        location_type: z.enum(['zone', 'aisle', 'bin', 'shelf', 'floor']),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const wh = await ctx.prisma.invWarehouse.findFirst({
-        where: { id: input.warehouse_id, org_id: orgId },
+        where: { id: input.warehouse_id, organization_id: orgId },
       });
       if (!wh) throw new TRPCError({ code: 'NOT_FOUND', message: 'Warehouse not found' });
 
@@ -147,13 +128,12 @@ export const warehousesRouter = createTRPCRouter({
 
       return ctx.prisma.invLocation.create({
         data: {
+          organization_id: orgId,
           warehouse_id: input.warehouse_id,
           parent_id: input.parent_id ?? null,
           name: input.name,
           code: input.code,
           location_type: input.location_type,
-          capacity: input.capacity ?? null,
-          capacity_unit: input.capacity_unit ?? null,
         },
       });
     }),
@@ -163,11 +143,11 @@ export const warehousesRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const wh = await ctx.prisma.invWarehouse.findFirst({
-        where: { id: input.warehouse_id, org_id: orgId },
+        where: { id: input.warehouse_id, organization_id: orgId },
       });
       if (!wh) throw new TRPCError({ code: 'NOT_FOUND', message: 'Warehouse not found' });
       return ctx.prisma.invLocation.findMany({
-        where: { warehouse_id: input.warehouse_id, is_active: true },
+        where: { warehouse_id: input.warehouse_id },
         include: {
           children: {
             include: { children: { include: { children: true } } },

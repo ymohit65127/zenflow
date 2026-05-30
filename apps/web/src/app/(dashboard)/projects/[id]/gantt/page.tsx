@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { use, useState } from 'react';
@@ -49,14 +48,14 @@ export default function GanttPage({ params }: { params: Promise<{ id: string }> 
     ...t,
     start_date: t.start_date ? new Date(t.start_date) : null,
     due_date: t.due_date ? new Date(t.due_date) : null,
-    status: t.status as { name: string; color: string; status_type: string } | null,
-    assignees: (t.assignees ?? []).map((a) => ({
+    status: { name: String(t.status), color: '#94a3b8', status_type: 'not_started' } as { name: string; color: string; status_type: string },
+    assignees: (t.assignees ?? []).map((a: { user: { name: string; avatar_url: string | null } }) => ({
       user: {
-        name: (a.user as { name: string }).name,
-        avatar_url: (a.user as { avatar_url: string | null }).avatar_url ?? null,
+        name: a.user.name,
+        avatar_url: a.user.avatar_url ?? null,
       },
     })),
-    dependencies: (t.dependencies ?? []).map((d) => ({
+    dependencies: (t.dependencies ?? []).map((d: { depends_on_task_id: string; dependency_type: string }) => ({
       depends_on_task_id: d.depends_on_task_id,
       dependency_type: d.dependency_type,
     })),
@@ -64,6 +63,7 @@ export default function GanttPage({ params }: { params: Promise<{ id: string }> 
 
   const phasesWithDates = data.phases.map((p) => ({
     ...p,
+    color: p.color ?? '#6B7280',
     start_date: p.start_date ? new Date(p.start_date) : null,
     end_date: p.end_date ? new Date(p.end_date) : null,
   }));
@@ -71,6 +71,7 @@ export default function GanttPage({ params }: { params: Promise<{ id: string }> 
   const milestonesWithDates = data.milestones.map((m) => ({
     ...m,
     due_date: new Date(m.due_date),
+    color: '#f59e0b',
   }));
 
   const criticalCount = data.tasks.filter((t) => t.isCritical).length;

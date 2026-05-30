@@ -1,16 +1,16 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { HdTriggerEvent } from '@zenflow/db';
 
 const TRIGGER_EVENTS = [
   'ticket_created',
-  'reply_received',
-  'status_changed',
-  'assigned',
-  'idle_n_hours',
+  'ticket_updated',
+  'ticket_assigned',
   'sla_breached',
-  'resolved',
+  'reply_received',
+  'ticket_resolved',
+  'ticket_closed',
 ] as const;
 
 const ConditionSchema = z.object({
@@ -59,10 +59,9 @@ export const automationRouter = createTRPCRouter({
         data: {
           organization_id: orgId,
           name: input.name,
-          trigger_event: input.trigger_event,
-          trigger_config: input.trigger_config ?? null,
-          conditions: input.conditions ?? null,
-          actions: input.actions ?? null,
+          trigger_event: input.trigger_event as HdTriggerEvent,
+          conditions: (input.conditions ?? null) as never,
+          actions: (input.actions ?? null) as never,
           is_active: input.is_active,
         },
       });
@@ -80,10 +79,9 @@ export const automationRouter = createTRPCRouter({
         where: { id },
         data: {
           name: rest.name,
-          trigger_event: rest.trigger_event,
-          trigger_config: rest.trigger_config ?? null,
-          conditions: rest.conditions ?? null,
-          actions: rest.actions ?? null,
+          trigger_event: rest.trigger_event as HdTriggerEvent,
+          conditions: (rest.conditions ?? null) as never,
+          actions: (rest.actions ?? null) as never,
           is_active: rest.is_active,
         },
       });
@@ -112,8 +110,8 @@ export const automationRouter = createTRPCRouter({
     const orgId = ctx.session.user.organizationId;
     const rules = await ctx.prisma.hdAutomationRule.findMany({
       where: { organization_id: orgId },
-      select: { id: true, name: true, trigger_event: true, run_count: true, last_run_at: true, is_active: true },
-      orderBy: { run_count: 'desc' },
+      select: { id: true, name: true, trigger_event: true, runs_count: true, last_run_at: true, is_active: true },
+      orderBy: { runs_count: 'desc' },
     });
     return rules;
   }),

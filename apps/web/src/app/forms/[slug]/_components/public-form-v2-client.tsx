@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -293,7 +292,7 @@ function FieldRenderer({
               if (file) onChange(file.name);
             }}
           />
-          {value && <p className="text-xs text-brand-500 mt-2 font-medium">{String(value)}</p>}
+          {value != null && <p className="text-xs text-brand-500 mt-2 font-medium">{String(value)}</p>}
         </div>
       );
 
@@ -426,7 +425,7 @@ export function PublicFormV2Client({ form }: { form: PublicFormData }) {
   const pages = useMemo(() => {
     const result: PublicField[][] = [[]];
     for (const field of form.fields) {
-      if (field.type === 'pagebreak' || field.type === 'PAGEBREAK') {
+      if (field.type === 'pagebreak') {
         result.push([]);
       } else {
         result[result.length - 1]!.push(field);
@@ -506,7 +505,7 @@ export function PublicFormV2Client({ form }: { form: PublicFormData }) {
     if (!validatePage(currentFields)) return;
     submitMutation.mutate({
       slug: form.slug,
-      data: formData,
+      data: formData as Record<string, string | number | boolean | string[] | null>,
       user_agent: typeof window !== 'undefined' ? navigator.userAgent : undefined,
       referrer: typeof window !== 'undefined' ? (document.referrer || undefined) : undefined,
     });
@@ -625,7 +624,7 @@ export function PublicFormV2Client({ form }: { form: PublicFormData }) {
           // Find the nth pagebreak field to get its page_title
           let breakCount = 0;
           for (const f of form.fields) {
-            if (f.type === 'pagebreak' || f.type === 'PAGEBREAK') {
+            if (f.type === 'pagebreak') {
               breakCount++;
               if (breakCount === currentPage && f.page_title) {
                 return <h2 className="text-xl font-semibold mb-6">{f.page_title}</h2>;

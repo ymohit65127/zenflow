@@ -1,7 +1,7 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { CrmTerritoryRuleType } from '@prisma/client';
 
 export const crmTerritoriesRouter = createTRPCRouter({
   list: protectedProcedure.query(async ({ ctx }) => {
@@ -45,10 +45,8 @@ export const crmTerritoriesRouter = createTRPCRouter({
         data: {
           organization_id: orgId,
           name: input.name,
-          description: input.description ?? null,
-          rule_type: input.rule_type,
-          rules: input.rules,
-          owner_ids: input.owner_ids,
+          rule_type: input.rule_type as unknown as CrmTerritoryRuleType,
+          rule_values: input.rules.flatMap((r) => r.values),
         },
       });
     }),
@@ -84,10 +82,8 @@ export const crmTerritoriesRouter = createTRPCRouter({
         where: { id: input.id },
         data: {
           ...(data.name !== undefined && { name: data.name }),
-          ...(data.description !== undefined && { description: data.description ?? null }),
-          ...(data.rule_type !== undefined && { rule_type: data.rule_type }),
-          ...(data.rules !== undefined && { rules: data.rules }),
-          ...(data.owner_ids !== undefined && { owner_ids: data.owner_ids }),
+          ...(data.rule_type !== undefined && { rule_type: data.rule_type as unknown as CrmTerritoryRuleType }),
+          ...(data.rules !== undefined && { rule_values: data.rules.flatMap((r) => r.values) }),
         },
       });
     }),

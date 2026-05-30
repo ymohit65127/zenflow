@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { useState } from "react";
 import { GitBranch, Plus, X, ChevronRight } from "lucide-react";
@@ -18,12 +16,10 @@ function CreateBOMDialog({ onClose }: { onClose: () => void }) {
     product_id: "",
     name: "",
     version: "1.0",
-    quantity: 1,
-    overhead_cost: 0,
-    is_default: true,
+    output_qty: 1,
   });
   const [lines, setLines] = useState([
-    { component_product_id: "", quantity: 1, unit: "", scrap_percent: 0, position: 0 },
+    { component_id: "", quantity: 1, position: 0 },
   ]);
 
   const mutation = api.inventory.bom.create.useMutation({
@@ -36,7 +32,7 @@ function CreateBOMDialog({ onClose }: { onClose: () => void }) {
   });
 
   const addLine = () =>
-    setLines((p) => [...p, { component_product_id: "", quantity: 1, unit: "", scrap_percent: 0, position: p.length }]);
+    setLines((p) => [...p, { component_id: "", quantity: 1, position: p.length }]);
   const removeLine = (i: number) => setLines((p) => p.filter((_, idx) => idx !== i));
   const updateLine = (i: number, key: string, val: string | number) =>
     setLines((p) => p.map((l, idx) => (idx === i ? { ...l, [key]: val } : l)));
@@ -73,12 +69,7 @@ function CreateBOMDialog({ onClose }: { onClose: () => void }) {
             </div>
             <div>
               <label className="block text-sm font-medium mb-1.5">Output Quantity</label>
-              <input type="number" min={0.0001} step="any" value={form.quantity} onChange={(e) => setForm((f) => ({ ...f, quantity: parseFloat(e.target.value) || 1 }))}
-                className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5">Overhead Cost (₹)</label>
-              <input type="number" min={0} step="any" value={form.overhead_cost} onChange={(e) => setForm((f) => ({ ...f, overhead_cost: parseFloat(e.target.value) || 0 }))}
+              <input type="number" min={0.0001} step="any" value={form.output_qty} onChange={(e) => setForm((f) => ({ ...f, output_qty: parseFloat(e.target.value) || 1 }))}
                 className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none" />
             </div>
           </div>
@@ -90,25 +81,19 @@ function CreateBOMDialog({ onClose }: { onClose: () => void }) {
             </div>
             <div className="space-y-2">
               <div className="grid grid-cols-12 gap-2 text-xs text-muted-foreground font-medium px-1">
-                <span className="col-span-5">Component</span>
-                <span className="col-span-2">Qty</span>
-                <span className="col-span-2">Scrap %</span>
-                <span className="col-span-2">Unit</span>
+                <span className="col-span-8">Component</span>
+                <span className="col-span-3">Qty</span>
                 <span className="col-span-1" />
               </div>
               {lines.map((line, i) => (
                 <div key={i} className="grid grid-cols-12 gap-2 items-center">
-                  <select value={line.component_product_id} onChange={(e) => updateLine(i, "component_product_id", e.target.value)}
-                    className="col-span-5 px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none">
+                  <select value={line.component_id} onChange={(e) => updateLine(i, "component_id", e.target.value)}
+                    className="col-span-8 px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none">
                     <option value="">Select component</option>
                     {products?.items.filter((p) => p.id !== form.product_id).map((p) => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
                   </select>
                   <input type="number" min={0} step="any" value={line.quantity} onChange={(e) => updateLine(i, "quantity", parseFloat(e.target.value) || 0)}
-                    className="col-span-2 px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none" />
-                  <input type="number" min={0} max={100} step="any" value={line.scrap_percent} onChange={(e) => updateLine(i, "scrap_percent", parseFloat(e.target.value) || 0)}
-                    className="col-span-2 px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none" />
-                  <input type="text" value={line.unit} onChange={(e) => updateLine(i, "unit", e.target.value)} placeholder="pcs"
-                    className="col-span-2 px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none" />
+                    className="col-span-3 px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none" />
                   {lines.length > 1 && (
                     <button onClick={() => removeLine(i)} className="col-span-1 text-muted-foreground hover:text-red-500"><X className="w-4 h-4" /></button>
                   )}
@@ -121,7 +106,7 @@ function CreateBOMDialog({ onClose }: { onClose: () => void }) {
           <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-lg border border-border text-sm font-medium hover:bg-muted">Cancel</button>
           <button
             onClick={() => mutation.mutate({ ...form, lines: lines.map((l, idx) => ({ ...l, position: idx })) })}
-            disabled={mutation.isPending || !form.product_id || !form.name || lines.some((l) => !l.component_product_id)}
+            disabled={mutation.isPending || !form.product_id || !form.name || lines.some((l) => !l.component_id)}
             className="flex-1 flex items-center justify-center gap-1.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white px-4 py-2.5 rounded-lg text-sm font-medium"
           >
             {mutation.isPending ? "Creating…" : "Create BOM"}
@@ -188,8 +173,8 @@ export default function BOMPage() {
                         <td className="px-5 py-4 font-mono text-sm text-muted-foreground">{bom.version}</td>
                         <td className="px-5 py-4 text-sm text-muted-foreground">{bom._count.lines}</td>
                         <td className="px-5 py-4">
-                          {bom.is_default && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-brand-500/10 text-brand-500">Default</span>
+                          {bom.is_active && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/10 text-green-600">Active</span>
                           )}
                         </td>
                         <td className="px-5 py-4 text-sm text-muted-foreground">

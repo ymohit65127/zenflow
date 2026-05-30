@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { useState } from "react";
 import {
@@ -18,8 +16,8 @@ import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 
 const MOVEMENT_TYPES = [
-  "purchase_receipt",
-  "sale_delivery",
+  "receipt",
+  "issue",
   "transfer_out",
   "transfer_in",
   "adjustment_in",
@@ -28,19 +26,17 @@ const MOVEMENT_TYPES = [
   "production_output",
   "return_in",
   "return_out",
-  "opening_balance",
-  "scrapped",
+  "opening_stock",
 ] as const;
 
 type MovementType = (typeof MOVEMENT_TYPES)[number];
 
 const OUTBOUND = new Set([
-  "sale_delivery",
+  "issue",
   "transfer_out",
   "adjustment_out",
   "production_input",
   "return_out",
-  "scrapped",
 ]);
 
 function MovementTypeBadge({ type }: { type: string }) {
@@ -165,7 +161,7 @@ export default function MovementsPage() {
                     return (
                       <tr key={m.id} className="hover:bg-muted/20 transition-colors">
                         <td className="px-5 py-3 text-sm text-muted-foreground whitespace-nowrap">
-                          {format(new Date(m.movement_date), "MMM dd, yyyy HH:mm")}
+                          {format(new Date(m.moved_at), "MMM dd, yyyy HH:mm")}
                         </td>
                         <td className="px-5 py-3">
                           <p className="font-medium text-sm">{m.product.name}</p>
@@ -175,7 +171,7 @@ export default function MovementsPage() {
                           <MovementTypeBadge type={m.movement_type} />
                         </td>
                         <td className="px-5 py-3">
-                          <span className="text-sm text-muted-foreground">{m.warehouse.name}</span>
+                          <span className="text-sm text-muted-foreground font-mono">{m.warehouse_id.slice(0, 8)}…</span>
                         </td>
                         <td className="px-5 py-3">
                           <span className={cn(
@@ -191,9 +187,7 @@ export default function MovementsPage() {
                         <td className="px-5 py-3 text-sm">
                           {Number(m.total_cost) > 0 ? `₹${Number(m.total_cost).toFixed(2)}` : "—"}
                         </td>
-                        <td className="px-5 py-3 text-sm font-medium">
-                          {Number(m.running_stock)}
-                        </td>
+                        <td className="px-5 py-3 text-sm font-medium text-muted-foreground">—</td>
                         <td className="px-5 py-3 text-xs text-muted-foreground">
                           {m.reference_type && m.reference_id ? (
                             <span className="font-mono">{m.reference_type}</span>

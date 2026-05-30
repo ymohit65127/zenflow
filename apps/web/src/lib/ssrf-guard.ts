@@ -63,7 +63,7 @@ export async function assertSafeUrl(url: string): Promise<void> {
   // IPv6-mapped IPv4 — e.g. [::ffff:127.0.0.1] or ::ffff:192.168.1.1
   const ipv6MappedMatch = host.match(/^\[?::ffff:(\d+\.\d+\.\d+\.\d+)\]?$/i);
   if (ipv6MappedMatch) {
-    const embeddedIp = ipv6MappedMatch[1] as string;
+    const embeddedIp = ipv6MappedMatch[1]!;
     if (PRIVATE_RANGES.some((r) => r.test(embeddedIp)) || BLOCKED_HOSTS.has(embeddedIp)) {
       throw new Error(`SSRF_BLOCKED: IPv6-mapped private address '${host}' is not allowed.`);
     }

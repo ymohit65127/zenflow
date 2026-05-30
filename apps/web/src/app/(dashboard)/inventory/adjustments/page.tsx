@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { useState } from "react";
 import {
@@ -25,13 +23,10 @@ import {
 import { Button } from "@/components/ui/button";
 
 const REASONS = [
-  "damaged",
-  "lost",
-  "found",
-  "correction",
-  "audit",
-  "expired",
-  "sample",
+  "count_discrepancy",
+  "damage",
+  "expiry",
+  "theft",
   "other",
 ] as const;
 type AdjReason = (typeof REASONS)[number];
@@ -42,11 +37,10 @@ function CreateAdjustmentDialog({ onClose }: { onClose: () => void }) {
   const { data: products } = api.inventory.products.list.useQuery({ limit: 200, offset: 0 });
 
   const [warehouseId, setWarehouseId] = useState("");
-  const [reason, setReason] = useState<AdjReason>("correction");
-  const [adjDate, setAdjDate] = useState(new Date().toISOString().split("T")[0]!);
+  const [reason, setReason] = useState<AdjReason>("count_discrepancy");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState([
-    { product_id: "", quantity_before: 0, quantity_after: 0, unit_cost: 0, reason_note: "" },
+    { product_id: "", qty_before: 0, qty_after: 0, unit_cost: 0 },
   ]);
 
   const mutation = api.inventory.adjustments.create.useMutation({
@@ -58,7 +52,7 @@ function CreateAdjustmentDialog({ onClose }: { onClose: () => void }) {
     onError: (e) => toast.error(e.message),
   });
 
-  const addLine = () => setLines((p) => [...p, { product_id: "", quantity_before: 0, quantity_after: 0, unit_cost: 0, reason_note: "" }]);
+  const addLine = () => setLines((p) => [...p, { product_id: "", qty_before: 0, qty_after: 0, unit_cost: 0 }]);
   const removeLine = (i: number) => setLines((p) => p.filter((_, idx) => idx !== i));
   const updateLine = (i: number, key: string, val: string | number) =>
     setLines((p) => p.map((l, idx) => (idx === i ? { ...l, [key]: val } : l)));
@@ -94,11 +88,12 @@ function CreateAdjustmentDialog({ onClose }: { onClose: () => void }) {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1.5">Date</label>
+              <label className="block text-sm font-medium mb-1.5">Notes</label>
               <input
-                type="date"
-                value={adjDate}
-                onChange={(e) => setAdjDate(e.target.value)}
+                type="text"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Optional notes"
                 className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/50"
               />
             </div>
@@ -119,7 +114,7 @@ function CreateAdjustmentDialog({ onClose }: { onClose: () => void }) {
                 <span className="col-span-1" />
               </div>
               {lines.map((line, i) => {
-                const change = line.quantity_after - line.quantity_before;
+                const change = line.qty_after - line.qty_before;
                 return (
                   <div key={i} className="grid grid-cols-12 gap-2 items-center">
                     <select
@@ -130,8 +125,8 @@ function CreateAdjustmentDialog({ onClose }: { onClose: () => void }) {
                       <option value="">Select product</option>
                       {products?.items.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
                     </select>
-                    <input type="number" min={0} value={line.quantity_before} onChange={(e) => updateLine(i, "quantity_before", parseFloat(e.target.value) || 0)} className="col-span-2 px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none" />
-                    <input type="number" min={0} value={line.quantity_after} onChange={(e) => updateLine(i, "quantity_after", parseFloat(e.target.value) || 0)} className="col-span-2 px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none" />
+                    <input type="number" min={0} value={line.qty_before} onChange={(e) => updateLine(i, "qty_before", parseFloat(e.target.value) || 0)} className="col-span-2 px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none" />
+                    <input type="number" min={0} value={line.qty_after} onChange={(e) => updateLine(i, "qty_after", parseFloat(e.target.value) || 0)} className="col-span-2 px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none" />
                     <input type="number" min={0} step="any" value={line.unit_cost} onChange={(e) => updateLine(i, "unit_cost", parseFloat(e.target.value) || 0)} className="col-span-2 px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none" />
                     <span className={cn("col-span-1 text-center text-sm font-semibold", change > 0 ? "text-green-600" : change < 0 ? "text-red-500" : "text-muted-foreground")}>
                       {change > 0 ? `+${change}` : change}
@@ -151,15 +146,13 @@ function CreateAdjustmentDialog({ onClose }: { onClose: () => void }) {
             onClick={() =>
               mutation.mutate({
                 warehouse_id: warehouseId,
-                adjustment_date: adjDate,
                 reason,
                 notes: notes || undefined,
                 lines: lines.map((l) => ({
                   product_id: l.product_id,
-                  quantity_before: l.quantity_before,
-                  quantity_after: l.quantity_after,
+                  qty_before: l.qty_before,
+                  qty_after: l.qty_after,
                   unit_cost: l.unit_cost,
-                  reason_note: l.reason_note || undefined,
                 })),
               })
             }
@@ -176,14 +169,14 @@ function CreateAdjustmentDialog({ onClose }: { onClose: () => void }) {
 
 export default function AdjustmentsPage() {
   const [showCreate, setShowCreate] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<"draft" | "posted" | "">("");
+  const [statusFilter, setStatusFilter] = useState<"draft" | "approved" | "posted" | "cancelled" | "">("");
   const [page, setPage] = useState(0);
   const limit = 20;
   const [confirmVoidId, setConfirmVoidId] = useState<string | null>(null);
 
   const utils = api.useUtils();
   const { data, isLoading } = api.inventory.adjustments.list.useQuery({
-    status: (statusFilter || undefined) as "draft" | "posted" | undefined,
+    status: (statusFilter || undefined) as "draft" | "approved" | "posted" | "cancelled" | undefined,
     limit,
     offset: page * limit,
   });
@@ -225,7 +218,7 @@ export default function AdjustmentsPage() {
         </div>
 
         <div className="flex gap-2">
-          {(["", "draft", "posted"] as const).map((s) => (
+          {(["", "draft", "approved", "posted", "cancelled"] as const).map((s) => (
             <button
               key={s}
               onClick={() => { setStatusFilter(s); setPage(0); }}
@@ -255,7 +248,7 @@ export default function AdjustmentsPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
-                    {["Adj #", "Warehouse", "Date", "Reason", "Lines", "Value Change", "Status", "Actions"].map((h) => (
+                    {["Adj #", "Warehouse ID", "Reason", "Lines", "Status", "Actions"].map((h) => (
                       <th key={h} className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -264,21 +257,11 @@ export default function AdjustmentsPage() {
                   {data?.items.map((adj) => (
                     <tr key={adj.id} className="hover:bg-muted/20">
                       <td className="px-5 py-4 font-mono text-sm font-semibold">{adj.adjustment_number}</td>
-                      <td className="px-5 py-4 text-sm">{adj.warehouse.name}</td>
-                      <td className="px-5 py-4 text-sm text-muted-foreground">
-                        {format(new Date(adj.adjustment_date), "MMM dd, yyyy")}
-                      </td>
+                      <td className="px-5 py-4 text-sm font-mono text-muted-foreground">{adj.warehouse_id}</td>
                       <td className="px-5 py-4">
                         <span className="text-sm capitalize">{adj.reason}</span>
                       </td>
                       <td className="px-5 py-4 text-sm text-muted-foreground">{adj._count.lines}</td>
-                      <td className="px-5 py-4 text-sm">
-                        {adj.total_value_change !== null ? (
-                          <span className={cn("font-medium", Number(adj.total_value_change) >= 0 ? "text-green-600" : "text-red-500")}>
-                            {Number(adj.total_value_change) >= 0 ? "+" : ""}₹{Number(adj.total_value_change).toFixed(2)}
-                          </span>
-                        ) : "—"}
-                      </td>
                       <td className="px-5 py-4">
                         <span className={cn(
                           "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium",

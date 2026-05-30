@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Internal event bus for ZenFlow events
 // Other modules emit events that can trigger workflows with TRIGGER_EVENT
 
@@ -43,7 +42,7 @@ export const zenflowEvents = {
     data: Record<string, unknown>
   ): Promise<void> => {
     // Find all active workflows triggered by this event for this org
-    const workflows = await prisma.workflow.findMany({
+    const workflows = await prisma.workflowV2.findMany({
       where: {
         organization_id: orgId,
         status: 'active',
@@ -65,7 +64,7 @@ export const zenflowEvents = {
         data: {
           workflow_id: wf.id,
           trigger_type: 'event',
-          trigger_data: data,
+          trigger_data: data as object,
           matched: passes,
         },
       });
@@ -77,12 +76,12 @@ export const zenflowEvents = {
 
     // Create WorkflowRun records for matched workflows
     if (matchedWorkflowIds.length > 0) {
-      await prisma.workflowRun.createMany({
+      await prisma.workflowV2Run.createMany({
         data: matchedWorkflowIds.map((workflowId) => ({
           workflow_id: workflowId,
           workflow_version: 1,
           trigger_type: 'event' as const,
-          trigger_data: data,
+          trigger_data: data as object,
           status: 'running' as const,
         })),
       });

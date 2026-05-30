@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { useState } from 'react';
@@ -46,7 +45,7 @@ function ArticleDialog({ open, onClose, editingId, categories }: {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const tags = form.tags.split(',').map((t) => t.trim()).filter(Boolean);
-    const payload = { title: form.title, body: form.body, status: form.status, visibility: form.visibility, tags, category_id: form.category_id || undefined, meta_description: form.meta_description || undefined, change_note: form.change_note || undefined };
+    const payload = { title: form.title, content: form.body, status: form.status as 'draft' | 'published' | 'archived', visibility: form.visibility as 'internal' | 'external' | 'agents_only', tags, category_id: form.category_id || undefined, change_note: form.change_note || undefined };
     if (editingId) updateMutation.mutate({ id: editingId, ...payload });
     else createMutation.mutate(payload);
   };
@@ -172,7 +171,7 @@ export default function KnowledgeBasePage() {
   const { data, isLoading } = api.helpdesk.kbV2.list.useQuery({
     search: search || undefined,
     status: statusFilter as 'draft' | 'published' | 'archived' | undefined || undefined,
-    visibility: visibilityFilter as 'public' | 'agents_only' | 'org_only' | undefined || undefined,
+    visibility: visibilityFilter as 'internal' | 'external' | 'agents_only' | undefined || undefined,
     category_id: categoryFilter || undefined,
     page,
     limit: 12,

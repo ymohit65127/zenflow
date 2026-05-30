@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { useState } from "react";
 import { Plus, Search, Receipt, X, Filter, ChevronDown, CheckCircle2, Clock, XCircle } from "lucide-react";

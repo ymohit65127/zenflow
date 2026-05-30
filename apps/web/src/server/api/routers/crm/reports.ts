@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 
@@ -22,7 +21,7 @@ export const crmReportsRouter = createTRPCRouter({
           created_at: { gte: input.dateFrom, lte: input.dateTo },
         },
         include: {
-          stage: { select: { id: true, name: true, color: true, stage_type: true } },
+          stage: { select: { id: true, name: true, color: true } },
         },
       });
 
@@ -35,7 +34,7 @@ export const crmReportsRouter = createTRPCRouter({
       for (const deal of deals) {
         const stageId = deal.stage_id;
         const existing = stageMap.get(stageId);
-        const amount = Number(deal.amount ?? 0);
+        const amount = Number(deal.value ?? 0);
 
         if (existing) {
           existing.count++;
@@ -50,8 +49,8 @@ export const crmReportsRouter = createTRPCRouter({
         }
 
         totalValue += amount;
-        if (deal.stage.stage_type === 'won') wonCount++;
-        if (deal.stage.stage_type === 'lost') lostCount++;
+        if (deal.status === 'WON') wonCount++;
+        if (deal.status === 'LOST') lostCount++;
       }
 
       const totalDeals = deals.length;
@@ -74,7 +73,7 @@ export const crmReportsRouter = createTRPCRouter({
       z.object({
         dateFrom: z.date(),
         dateTo: z.date(),
-        groupBy: z.enum(['owner', 'source', 'deal_type', 'lost_reason']),
+        groupBy: z.enum(['assignee', 'lost_reason']),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -85,22 +84,22 @@ export const crmReportsRouter = createTRPCRouter({
           where: {
             organization_id: orgId,
             deleted_at: null,
-            won_at: { gte: input.dateFrom, lte: input.dateTo },
+            status: 'WON',
+            closed_at: { gte: input.dateFrom, lte: input.dateTo },
           },
           include: {
-            owner: { select: { id: true, name: true } },
-            lost_reason: { select: { id: true, name: true } },
+            assignee: { select: { id: true, name: true } },
           },
         }),
         ctx.prisma.crmDeal.findMany({
           where: {
             organization_id: orgId,
             deleted_at: null,
-            lost_at: { gte: input.dateFrom, lte: input.dateTo },
+            status: 'LOST',
+            closed_at: { gte: input.dateFrom, lte: input.dateTo },
           },
           include: {
-            owner: { select: { id: true, name: true } },
-            lost_reason: { select: { id: true, name: true } },
+            assignee: { select: { id: true, name: true } },
           },
         }),
       ]);
@@ -109,10 +108,8 @@ export const crmReportsRouter = createTRPCRouter({
       const grouped = new Map<string, GroupData>();
 
       const getKey = (deal: typeof wonDeals[0]) => {
-        if (input.groupBy === 'owner') return deal.owner?.name ?? 'Unassigned';
-        if (input.groupBy === 'source') return deal.source ?? 'Unknown';
-        if (input.groupBy === 'deal_type') return deal.deal_type;
-        if (input.groupBy === 'lost_reason') return deal.lost_reason?.name ?? 'No reason';
+        if (input.groupBy === 'assignee') return deal.assignee?.name ?? 'Unassigned';
+        if (input.groupBy === 'lost_reason') return deal.lost_reason ?? 'No reason';
         return 'Other';
       };
 
@@ -120,7 +117,7 @@ export const crmReportsRouter = createTRPCRouter({
         const key = getKey(deal);
         const existing = grouped.get(key) ?? { label: key, won: 0, lost: 0, wonValue: 0, lostValue: 0 };
         existing.won++;
-        existing.wonValue += Number(deal.amount ?? 0);
+        existing.wonValue += Number(deal.value ?? 0);
         grouped.set(key, existing);
       }
 
@@ -128,7 +125,7 @@ export const crmReportsRouter = createTRPCRouter({
         const key = getKey(deal);
         const existing = grouped.get(key) ?? { label: key, won: 0, lost: 0, wonValue: 0, lostValue: 0 };
         existing.lost++;
-        existing.lostValue += Number(deal.amount ?? 0);
+        existing.lostValue += Number(deal.value ?? 0);
         grouped.set(key, existing);
       }
 
@@ -166,25 +163,30 @@ export const crmReportsRouter = createTRPCRouter({
           organization_id: orgId,
           pipeline_id: input.pipelineId,
           deleted_at: null,
-          won_at: null,
-          lost_at: null,
-          expected_close_date: { gte: startDate, lte: endDate },
+          status: 'OPEN',
+          expected_close: { gte: startDate, lte: endDate },
         },
         include: {
-          stage: { select: { probability: true, name: true } },
+          stage: { select: { win_probability: true, name: true } },
         },
       });
 
       const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
       const [wonLast6, closedLast6] = await Promise.all([
         ctx.prisma.crmDeal.count({
-          where: { organization_id: orgId, pipeline_id: input.pipelineId, won_at: { gte: sixMonthsAgo } },
+          where: {
+            organization_id: orgId,
+            pipeline_id: input.pipelineId,
+            status: 'WON',
+            closed_at: { gte: sixMonthsAgo },
+          },
         }),
         ctx.prisma.crmDeal.count({
           where: {
             organization_id: orgId,
             pipeline_id: input.pipelineId,
-            OR: [{ won_at: { gte: sixMonthsAgo } }, { lost_at: { gte: sixMonthsAgo } }],
+            status: { in: ['WON', 'LOST'] },
+            closed_at: { gte: sixMonthsAgo },
           },
         }),
       ]);
@@ -195,8 +197,8 @@ export const crmReportsRouter = createTRPCRouter({
       let weighted = 0;
 
       for (const deal of openDeals) {
-        const amount = Number(deal.amount ?? 0);
-        const prob = Number(deal.probability ?? deal.stage.probability ?? 0) / 100;
+        const amount = Number(deal.value ?? 0);
+        const prob = Number(deal.probability ?? deal.stage.win_probability ?? 0) / 100;
         bestCase += amount;
         weighted += amount * prob;
       }
@@ -214,9 +216,9 @@ export const crmReportsRouter = createTRPCRouter({
         closingDeals: openDeals.map((d) => ({
           id: d.id,
           name: d.name,
-          amount: Number(d.amount ?? 0),
-          probability: Number(d.probability ?? d.stage.probability ?? 0),
-          expected_close_date: d.expected_close_date,
+          value: Number(d.value ?? 0),
+          probability: Number(d.probability ?? d.stage.win_probability ?? 0),
+          expected_close: d.expected_close,
           stageName: d.stage.name,
         })),
       };
@@ -239,23 +241,19 @@ export const crmReportsRouter = createTRPCRouter({
           ...(input.ownerId && { owner_id: input.ownerId }),
           created_at: { gte: input.dateFrom, lte: input.dateTo },
         },
-        select: { type: true, status: true, outcome: true, created_at: true },
+        select: { type: true, status: true, created_at: true },
       });
 
       const byType = new Map<string, number>();
-      const byOutcome = new Map<string, number>();
 
       for (const act of activities) {
         byType.set(act.type, (byType.get(act.type) ?? 0) + 1);
-        if (act.outcome) {
-          byOutcome.set(act.outcome, (byOutcome.get(act.outcome) ?? 0) + 1);
-        }
       }
 
       return {
         total: activities.length,
         byType: Array.from(byType.entries()).map(([type, count]) => ({ type, count })),
-        byOutcome: Array.from(byOutcome.entries()).map(([outcome, count]) => ({ outcome, count })),
+        byOutcome: [] as { outcome: string; count: number }[],
       };
     }),
 
@@ -274,10 +272,11 @@ export const crmReportsRouter = createTRPCRouter({
         where: {
           organization_id: orgId,
           deleted_at: null,
-          won_at: { gte: input.dateFrom, lte: input.dateTo },
+          status: 'WON',
+          closed_at: { gte: input.dateFrom, lte: input.dateTo },
         },
         include: {
-          owner: { select: { id: true, name: true, avatar_url: true } },
+          assignee: { select: { id: true, name: true, avatar_url: true } },
         },
       });
 
@@ -285,17 +284,17 @@ export const crmReportsRouter = createTRPCRouter({
       const repMap = new Map<string, RepData>();
 
       for (const deal of wonDeals) {
-        if (!deal.owner_id) continue;
-        const existing = repMap.get(deal.owner_id) ?? {
-          userId: deal.owner_id,
-          name: deal.owner?.name ?? 'Unknown',
-          avatar: deal.owner?.avatar_url ?? null,
+        if (!deal.assignee_id) continue;
+        const existing = repMap.get(deal.assignee_id) ?? {
+          userId: deal.assignee_id,
+          name: deal.assignee?.name ?? 'Unknown',
+          avatar: deal.assignee?.avatar_url ?? null,
           dealsWon: 0,
           revenue: 0,
         };
         existing.dealsWon++;
-        existing.revenue += Number(deal.amount ?? 0);
-        repMap.set(deal.owner_id, existing);
+        existing.revenue += Number(deal.value ?? 0);
+        repMap.set(deal.assignee_id, existing);
       }
 
       const reps = Array.from(repMap.values()).map((rep) => ({
@@ -326,23 +325,22 @@ export const crmReportsRouter = createTRPCRouter({
           organization_id: orgId,
           pipeline_id: input.pipelineId,
           deleted_at: null,
-          actual_close_date: { gte: input.dateFrom, lte: input.dateTo },
+          status: { in: ['WON', 'LOST'] },
+          closed_at: { gte: input.dateFrom, lte: input.dateTo },
         },
         select: {
           id: true,
           created_at: true,
-          actual_close_date: true,
-          stage_changed_at: true,
-          won_at: true,
-          lost_at: true,
-          amount: true,
+          closed_at: true,
+          value: true,
+          status: true,
         },
       });
 
       const cycleTimes = closedDeals
-        .filter((d) => d.actual_close_date)
+        .filter((d) => d.closed_at)
         .map((d) => {
-          const closeDate = d.actual_close_date as Date;
+          const closeDate = d.closed_at as Date;
           return (closeDate.getTime() - d.created_at.getTime()) / (1000 * 60 * 60 * 24);
         });
 

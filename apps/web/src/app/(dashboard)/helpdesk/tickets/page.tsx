@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -212,9 +211,7 @@ export default function TicketsPage() {
                         <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium capitalize', STATUS_COLORS[ticket.status] ?? '')}>{ticket.status.replace('_', ' ')}</span>
                       </td>
                       <td className="px-4 py-3">
-                        {ticket.resolution_due_at ? (
-                          <SlaTimer dueAt={ticket.resolution_due_at} completedAt={ticket.resolved_at} compact label="Resolution" />
-                        ) : ticket.sla_status && ticket.sla_status !== 'ok' ? (
+                        {ticket.sla_status && ticket.sla_status !== 'completed' ? (
                           <SlaStatusBadge slaStatus={ticket.sla_status} />
                         ) : (
                           <span className="text-xs text-muted-foreground">—</span>

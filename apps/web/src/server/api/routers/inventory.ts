@@ -1,8 +1,7 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { type PrismaClient } from '@zenflow/db';
+import { type PrismaClient, Prisma } from '@zenflow/db';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -330,7 +329,7 @@ const warehousesRouter = createTRPCRouter({
           organization_id: orgId,
           name: input.name,
           code: input.code,
-          address: input.address ?? null,
+          address: input.address !== undefined ? input.address as Prisma.InputJsonValue : Prisma.JsonNull,
           is_active: input.is_active,
         },
       });

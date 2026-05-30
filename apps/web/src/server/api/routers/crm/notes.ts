@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -21,10 +20,6 @@ export const crmNotesRouter = createTRPCRouter({
           entity_type: input.entityType,
           entity_id: input.entityId,
           deleted_at: null,
-        },
-        include: {
-          creator: { select: { id: true, name: true, avatar_url: true } },
-          updater: { select: { id: true, name: true } },
         },
         orderBy: [{ is_pinned: 'desc' }, { created_at: 'desc' }],
       });
@@ -52,9 +47,6 @@ export const crmNotesRouter = createTRPCRouter({
           is_pinned: input.isPinned,
           created_by: userId,
         },
-        include: {
-          creator: { select: { id: true, name: true, avatar_url: true } },
-        },
       });
     }),
 
@@ -68,7 +60,6 @@ export const crmNotesRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
-      const userId = ctx.session.user.id as string;
 
       const existing = await ctx.prisma.crmNote.findFirst({
         where: { id: input.id, organization_id: orgId, deleted_at: null },
@@ -80,7 +71,6 @@ export const crmNotesRouter = createTRPCRouter({
         data: {
           content: input.content,
           ...(input.isPinned !== undefined && { is_pinned: input.isPinned }),
-          updated_by: userId,
         },
       });
     }),

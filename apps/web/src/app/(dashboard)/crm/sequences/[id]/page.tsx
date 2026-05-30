@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { use, useState } from "react";
 import Link from "next/link";
@@ -11,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -31,8 +28,6 @@ import {
   CheckSquare,
   Trash2,
   Users,
-  CheckCircle,
-  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -46,25 +41,36 @@ const STEP_TYPE_CONFIG: Record<StepType, { icon: typeof Mail; color: string; lab
   wait: { icon: Clock, color: "text-slate-500", label: "Wait" },
 };
 
+type StepConfig = {
+  subject?: string | null;
+  body?: string | null;
+  task_title?: string | null;
+  task_type?: string | null;
+};
+
+type StepItem = {
+  id: string;
+  sequence_id: string;
+  step_type: string;
+  position: number;
+  delay_days: number;
+  delay_hours: number;
+  config: unknown;
+  created_at: Date;
+};
+
 function StepCard({
   step,
   index,
   onDelete,
 }: {
-  step: {
-    type: StepType;
-    position: number;
-    wait_days: number;
-    wait_hours: number;
-    subject?: string | null;
-    body?: string | null;
-    task_title?: string | null;
-  };
+  step: StepItem;
   index: number;
   onDelete: () => void;
 }) {
-  const config = STEP_TYPE_CONFIG[step.type] ?? STEP_TYPE_CONFIG.email;
+  const config = STEP_TYPE_CONFIG[step.step_type as StepType] ?? STEP_TYPE_CONFIG.email;
   const Icon = config.icon;
+  const stepConfig = (step.config ?? {}) as StepConfig;
 
   return (
     <div className="flex items-start gap-3">
@@ -78,9 +84,9 @@ function StepCard({
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="text-xs">{config.label}</Badge>
-            {(step.wait_days > 0 || step.wait_hours > 0) && (
+            {(step.delay_days > 0 || step.delay_hours > 0) && (
               <span className="text-xs text-muted-foreground">
-                Wait {step.wait_days}d {step.wait_hours}h before
+                Wait {step.delay_days}d {step.delay_hours}h before
               </span>
             )}
           </div>
@@ -88,14 +94,14 @@ function StepCard({
             <Trash2 className="w-3.5 h-3.5 text-muted-foreground" />
           </Button>
         </div>
-        {step.subject && <p className="text-sm font-medium">{step.subject}</p>}
-        {step.body && (
-          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{step.body}</p>
+        {stepConfig.subject && <p className="text-sm font-medium">{stepConfig.subject}</p>}
+        {stepConfig.body && (
+          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{stepConfig.body}</p>
         )}
-        {step.task_title && <p className="text-sm">{step.task_title}</p>}
-        {step.type === "wait" && (
+        {stepConfig.task_title && <p className="text-sm">{stepConfig.task_title}</p>}
+        {step.step_type === "wait" && (
           <p className="text-sm text-muted-foreground">
-            Wait for {step.wait_days} day(s), {step.wait_hours} hour(s)
+            Wait for {step.delay_days} day(s), {step.delay_hours} hour(s)
           </p>
         )}
       </div>
@@ -114,8 +120,8 @@ export default function SequenceDetailPage({ params }: { params: Promise<{ id: s
   const [newStepType, setNewStepType] = useState<StepType>("email");
   const [newStepSubject, setNewStepSubject] = useState("");
   const [newStepBody, setNewStepBody] = useState("");
-  const [newStepWaitDays, setNewStepWaitDays] = useState(1);
-  const [editedSteps, setEditedSteps] = useState<NonNullable<typeof sequence>["steps"]>([]);
+  const [newStepDelayDays, setNewStepDelayDays] = useState(1);
+  const [editedSteps, setEditedSteps] = useState<StepItem[]>([]);
   const [stepsChanged, setStepsChanged] = useState(false);
 
   const activateMutation = api.crm.sequences.activate.useMutation({
@@ -151,54 +157,55 @@ export default function SequenceDetailPage({ params }: { params: Promise<{ id: s
     );
   }
 
-  const currentSteps = stepsChanged ? (editedSteps as NonNullable<typeof sequence>["steps"]) : sequence.steps;
+  const currentSteps: StepItem[] = stepsChanged ? editedSteps : (sequence.steps as StepItem[]);
 
   function addStep() {
-    const steps = stepsChanged ? (editedSteps as NonNullable<typeof sequence>["steps"]) : sequence!.steps;
-    const newStep = {
+    const steps: StepItem[] = stepsChanged ? editedSteps : (sequence!.steps as StepItem[]);
+    const newStep: StepItem = {
       id: `temp-${Date.now()}`,
       sequence_id: id,
       position: steps.length,
-      type: newStepType,
-      wait_days: newStepWaitDays,
-      wait_hours: 0,
-      wait_until_time: null,
-      subject: newStepType === "email" ? newStepSubject || null : null,
-      body: newStepType === "email" ? newStepBody || null : null,
-      task_title: newStepType === "task" ? newStepSubject || null : null,
-      task_type: null,
-      template_id: null,
+      step_type: newStepType,
+      delay_days: newStepDelayDays,
+      delay_hours: 0,
+      config: {
+        subject: newStepType === "email" ? newStepSubject || null : null,
+        body: newStepType === "email" ? newStepBody || null : null,
+        task_title: newStepType === "task" ? newStepSubject || null : null,
+        task_type: null,
+      },
       created_at: new Date(),
-      updated_at: new Date(),
     };
-    setEditedSteps([...steps, newStep] as NonNullable<typeof sequence>["steps"]);
+    setEditedSteps([...steps, newStep]);
     setStepsChanged(true);
     setNewStepSubject("");
     setNewStepBody("");
   }
 
   function removeStep(index: number) {
-    const steps = stepsChanged ? [...(editedSteps as NonNullable<typeof sequence>["steps"])] : [...sequence!.steps];
+    const steps = stepsChanged ? [...editedSteps] : [...(sequence!.steps as StepItem[])];
     steps.splice(index, 1);
     const reindexed = steps.map((s, i) => ({ ...s, position: i }));
-    setEditedSteps(reindexed as NonNullable<typeof sequence>["steps"]);
+    setEditedSteps(reindexed);
     setStepsChanged(true);
   }
 
   function saveSteps() {
     updateStepsMutation.mutate({
       sequenceId: id,
-      steps: currentSteps.map((s) => ({
-        position: s.position,
-        type: s.type as StepType,
-        wait_days: s.wait_days,
-        wait_hours: s.wait_hours,
-        wait_until_time: s.wait_until_time ?? undefined,
-        subject: s.subject ?? undefined,
-        body: s.body ?? undefined,
-        task_title: s.task_title ?? undefined,
-        task_type: s.task_type as typeof s.task_type ?? undefined,
-      })),
+      steps: currentSteps.map((s) => {
+        const cfg = (s.config ?? {}) as StepConfig;
+        return {
+          position: s.position,
+          type: s.step_type as StepType,
+          delay_days: s.delay_days,
+          delay_hours: s.delay_hours,
+          subject: cfg.subject ?? undefined,
+          body: cfg.body ?? undefined,
+          task_title: cfg.task_title ?? undefined,
+          task_type: cfg.task_type as ("call" | "email" | "meeting" | "task" | "note" | "deadline") | undefined,
+        };
+      }),
     });
   }
 
@@ -305,15 +312,7 @@ export default function SequenceDetailPage({ params }: { params: Promise<{ id: s
                   {currentSteps.map((step, idx) => (
                     <StepCard
                       key={step.id}
-                      step={{
-                        type: step.type as StepType,
-                        position: step.position,
-                        wait_days: step.wait_days,
-                        wait_hours: step.wait_hours,
-                        subject: step.subject,
-                        body: step.body,
-                        task_title: step.task_title,
-                      }}
+                      step={step}
                       index={idx}
                       onDelete={() => removeStep(idx)}
                     />
@@ -346,8 +345,8 @@ export default function SequenceDetailPage({ params }: { params: Promise<{ id: s
                   <Input
                     type="number"
                     min={0}
-                    value={newStepWaitDays}
-                    onChange={(e) => setNewStepWaitDays(Number(e.target.value))}
+                    value={newStepDelayDays}
+                    onChange={(e) => setNewStepDelayDays(Number(e.target.value))}
                     className="h-8"
                   />
                 </div>
@@ -395,7 +394,7 @@ export default function SequenceDetailPage({ params }: { params: Promise<{ id: s
             {enrollmentsData?.enrollments && enrollmentsData.enrollments.length > 0 ? (
               <div className="divide-y divide-border">
                 <div className="grid grid-cols-4 gap-4 p-3 bg-muted/30 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  <span>Contact</span>
+                  <span>Entity</span>
                   <span>Status</span>
                   <span>Step</span>
                   <span>Enrolled</span>
@@ -403,10 +402,8 @@ export default function SequenceDetailPage({ params }: { params: Promise<{ id: s
                 {enrollmentsData.enrollments.map((enrollment) => (
                   <div key={enrollment.id} className="grid grid-cols-4 gap-4 p-3 items-center hover:bg-muted/30">
                     <div>
-                      <p className="text-sm font-medium">
-                        {enrollment.contact?.first_name} {enrollment.contact?.last_name ?? ""}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{enrollment.contact?.email}</p>
+                      <p className="text-sm font-medium capitalize">{enrollment.entity_type}</p>
+                      <p className="text-xs text-muted-foreground font-mono">{enrollment.entity_id.slice(0, 8)}…</p>
                     </div>
                     <Badge
                       className={
@@ -419,7 +416,7 @@ export default function SequenceDetailPage({ params }: { params: Promise<{ id: s
                     >
                       {enrollment.status}
                     </Badge>
-                    <span className="text-sm">Step {enrollment.current_step_position + 1}</span>
+                    <span className="text-sm">Step {enrollment.current_step + 1}</span>
                     <span className="text-sm text-muted-foreground">
                       {new Date(enrollment.enrolled_at).toLocaleDateString()}
                     </span>

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -36,7 +35,7 @@ export const incomingWebhooksRouter = createTRPCRouter({
 
       const webhook = await ctx.prisma.chatIncomingWebhook.create({
         data: {
-          org_id: orgId,
+          organization_id: orgId,
           channel_id: input.channel_id,
           name: input.name,
           description: input.description ?? null,
@@ -63,7 +62,7 @@ export const incomingWebhooksRouter = createTRPCRouter({
 
       const webhooks = await ctx.prisma.chatIncomingWebhook.findMany({
         where: {
-          org_id: orgId,
+          organization_id: orgId,
           is_active: true,
           ...(input.channel_id ? { channel_id: input.channel_id } : {}),
         },
@@ -87,7 +86,7 @@ export const incomingWebhooksRouter = createTRPCRouter({
       const orgId = ctx.session.user.organizationId;
 
       const webhook = await ctx.prisma.chatIncomingWebhook.findFirst({
-        where: { id: input.id, org_id: orgId },
+        where: { id: input.id, organization_id: orgId },
       });
       if (!webhook) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Webhook not found' });
@@ -106,7 +105,7 @@ export const incomingWebhooksRouter = createTRPCRouter({
       const orgId = ctx.session.user.organizationId;
 
       const webhook = await ctx.prisma.chatIncomingWebhook.findFirst({
-        where: { id: input.id, org_id: orgId, is_active: true },
+        where: { id: input.id, organization_id: orgId, is_active: true },
       });
       if (!webhook) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Webhook not found' });

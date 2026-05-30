@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -7,7 +6,7 @@ export const spacesRouter = createTRPCRouter({
   list: protectedProcedure.query(async ({ ctx }) => {
     const orgId = ctx.session.user.organizationId as string;
     return ctx.prisma.docSpace.findMany({
-      where: { org_id: orgId, is_archived: false },
+      where: { organization_id: orgId, is_archived: false },
       orderBy: [{ position: 'asc' }, { name: 'asc' }],
       include: {
         _count: { select: { documents: true } },
@@ -20,7 +19,7 @@ export const spacesRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const space = await ctx.prisma.docSpace.findFirst({
-        where: { id: input.id, org_id: orgId, is_archived: false },
+        where: { id: input.id, organization_id: orgId, is_archived: false },
         include: { _count: { select: { documents: true } } },
       });
       if (!space) throw new TRPCError({ code: 'NOT_FOUND', message: 'Space not found' });
@@ -47,7 +46,7 @@ export const spacesRouter = createTRPCRouter({
       return ctx.prisma.docSpace.create({
         data: {
           ...input,
-          org_id: orgId,
+          organization_id: orgId,
           owner_id: userId,
         },
       });
@@ -69,7 +68,7 @@ export const spacesRouter = createTRPCRouter({
       const orgId = ctx.session.user.organizationId as string;
       const userId = ctx.session.user.id as string;
       const space = await ctx.prisma.docSpace.findFirst({
-        where: { id: input.id, org_id: orgId },
+        where: { id: input.id, organization_id: orgId },
       });
       if (!space) throw new TRPCError({ code: 'NOT_FOUND', message: 'Space not found' });
       if (space.owner_id !== userId) {
@@ -85,14 +84,14 @@ export const spacesRouter = createTRPCRouter({
       const orgId = ctx.session.user.organizationId as string;
       const userId = ctx.session.user.id as string;
       const space = await ctx.prisma.docSpace.findFirst({
-        where: { id: input.id, org_id: orgId },
+        where: { id: input.id, organization_id: orgId },
       });
       if (!space) throw new TRPCError({ code: 'NOT_FOUND', message: 'Space not found' });
       if (space.owner_id !== userId) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the owner can delete this space' });
       }
       // Soft-archive all documents inside
-      await ctx.prisma.document.updateMany({
+      await ctx.prisma.docV2.updateMany({
         where: { space_id: input.id },
         data: { is_archived: true, archived_at: new Date() },
       });

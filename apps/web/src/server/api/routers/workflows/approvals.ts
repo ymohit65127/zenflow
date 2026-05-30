@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure, publicProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -88,7 +87,7 @@ export const workflowApprovalsRouter = createTRPCRouter({
       });
 
       // Update run status back to running so the engine can continue
-      await ctx.prisma.workflowRun.update({
+      await ctx.prisma.workflowV2Run.update({
         where: { id: request.run_id },
         data: { status: 'running' },
       });
@@ -126,7 +125,7 @@ export const workflowApprovalsRouter = createTRPCRouter({
       });
 
       // Mark run as failed
-      await ctx.prisma.workflowRun.update({
+      await ctx.prisma.workflowV2Run.update({
         where: { id: request.run_id },
         data: {
           status: 'failed',
@@ -199,7 +198,7 @@ export const workflowApprovalsRouter = createTRPCRouter({
         data: { status: 'rejected', approved_by: userId, approved_at: new Date(), rejected_reason: input.reason },
       });
 
-      await ctx.prisma.workflowRun.update({
+      await ctx.prisma.workflowV2Run.update({
         where: { id: request.run_id },
         data: {
           status: 'failed',

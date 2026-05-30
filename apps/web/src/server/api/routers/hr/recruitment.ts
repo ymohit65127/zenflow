@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -292,7 +291,8 @@ export const recruitmentRouter = createTRPCRouter({
         const num = last ? parseInt(last.employee_code.replace(/\D/g, ''), 10) : 0;
         const employee_code = `EMP${String(isNaN(num) ? 1 : num + 1).padStart(3, '0')}`;
 
-        const [firstName, ...rest] = app.candidate_name.split(' ');
+        const [firstNamePart, ...rest] = app.candidate_name.split(' ');
+        const firstName = firstNamePart ?? app.candidate_name;
         const lastName = rest.join(' ') || '-';
 
         const emp = await tx.hrEmployee.create({

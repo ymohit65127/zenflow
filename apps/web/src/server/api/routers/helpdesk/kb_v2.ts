@@ -1,20 +1,17 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure, publicProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { HdArticleVisibility, HdArticleStatus } from '@zenflow/db';
 
 const ArticleSchema = z.object({
   title: z.string().min(1).max(500),
   slug: z.string().min(1).max(500).optional(),
-  body: z.string().min(1),
-  body_html: z.string().optional(),
+  content: z.string().min(1),
+  content_html: z.string().optional(),
   category_id: z.string().optional(),
   status: z.enum(['draft', 'published', 'archived']).default('draft'),
-  visibility: z.enum(['public', 'agents_only', 'org_only']).default('public'),
+  visibility: z.enum(['internal', 'external', 'agents_only']).default('external'),
   tags: z.array(z.string()).default([]),
-  meta_description: z.string().max(300).optional(),
-  seo_keywords: z.string().max(500).optional(),
-  featured_image_url: z.string().url().optional(),
   change_note: z.string().max(255).optional(),
 });
 
@@ -48,7 +45,7 @@ export const kbV2Router = createTRPCRouter({
     .input(z.object({
       status: z.enum(['draft', 'published', 'archived']).optional(),
       category_id: z.string().optional(),
-      visibility: z.enum(['public', 'agents_only', 'org_only']).optional(),
+      visibility: z.enum(['internal', 'external', 'agents_only']).optional(),
       search: z.string().optional(),
       page: z.number().int().min(1).default(1),
       limit: z.number().int().min(1).max(100).default(20),
@@ -64,8 +61,7 @@ export const kbV2Router = createTRPCRouter({
       if (input.search) {
         where['OR'] = [
           { title: { contains: input.search, mode: 'insensitive' } },
-          { body: { contains: input.search, mode: 'insensitive' } },
-          { meta_description: { contains: input.search, mode: 'insensitive' } },
+          { content: { contains: input.search, mode: 'insensitive' } },
           { tags: { has: input.search } },
         ];
       }
@@ -74,7 +70,6 @@ export const kbV2Router = createTRPCRouter({
         ctx.prisma.hdArticle.findMany({
           where,
           include: {
-            category: { select: { id: true, name: true, color: true } },
             _count: { select: { versions: true, feedback: true } },
           },
           orderBy: { updated_at: 'desc' },
@@ -84,7 +79,23 @@ export const kbV2Router = createTRPCRouter({
         ctx.prisma.hdArticle.count({ where }),
       ]);
 
-      return { items, total, page: input.page, limit: input.limit, totalPages: Math.ceil(total / input.limit) };
+      // Attach category data separately
+      const categoryIds = [...new Set(items.map((a) => a.category_id).filter(Boolean))] as string[];
+      const categoriesMap = new Map<string, { id: string; name: string; color: string | null }>();
+      if (categoryIds.length > 0) {
+        const cats = await ctx.prisma.hdCategory.findMany({
+          where: { id: { in: categoryIds } },
+          select: { id: true, name: true, color: true },
+        });
+        cats.forEach((c) => categoriesMap.set(c.id, c));
+      }
+
+      const itemsWithCategory = items.map((a) => ({
+        ...a,
+        category: a.category_id ? (categoriesMap.get(a.category_id) ?? null) : null,
+      }));
+
+      return { items: itemsWithCategory, total, page: input.page, limit: input.limit, totalPages: Math.ceil(total / input.limit) };
     }),
 
   get: protectedProcedure
@@ -94,13 +105,18 @@ export const kbV2Router = createTRPCRouter({
       const article = await ctx.prisma.hdArticle.findFirst({
         where: { id: input.id, organization_id: orgId },
         include: {
-          category: true,
           versions: { orderBy: { version_number: 'desc' }, take: 10 },
           _count: { select: { feedback: true } },
         },
       });
       if (!article) throw new TRPCError({ code: 'NOT_FOUND', message: 'Article not found' });
-      return article;
+
+      // Get category separately
+      const category = article.category_id
+        ? await ctx.prisma.hdCategory.findFirst({ where: { id: article.category_id }, select: { id: true, name: true, color: true } })
+        : null;
+
+      return { ...article, category };
     }),
 
   getPublic: publicProcedure
@@ -113,8 +129,7 @@ export const kbV2Router = createTRPCRouter({
       if (!org) throw new TRPCError({ code: 'NOT_FOUND', message: 'Organization not found' });
 
       const article = await ctx.prisma.hdArticle.findFirst({
-        where: { organization_id: org.id, slug: input.slug, status: 'published', visibility: 'public' },
-        include: { category: { select: { id: true, name: true } } },
+        where: { organization_id: org.id, slug: input.slug, status: 'published' as HdArticleStatus, visibility: 'external' as HdArticleVisibility },
       });
       if (!article) throw new TRPCError({ code: 'NOT_FOUND', message: 'Article not found' });
 
@@ -136,15 +151,12 @@ export const kbV2Router = createTRPCRouter({
           author_id: userId,
           title: input.title,
           slug,
-          body: input.body,
-          body_html: input.body_html ?? null,
+          content: input.content,
+          content_html: input.content_html ?? null,
           category_id: input.category_id ?? null,
-          status: input.status,
-          visibility: input.visibility,
+          status: input.status as HdArticleStatus,
+          visibility: input.visibility as HdArticleVisibility,
           tags: input.tags,
-          meta_description: input.meta_description ?? null,
-          seo_keywords: input.seo_keywords ?? null,
-          featured_image_url: input.featured_image_url ?? null,
           ...(input.status === 'published' ? { published_at: new Date() } : {}),
         },
       });
@@ -155,10 +167,8 @@ export const kbV2Router = createTRPCRouter({
           article_id: article.id,
           version_number: 1,
           title: article.title,
-          body: article.body,
-          body_html: article.body_html ?? null,
+          content: article.content,
           changed_by: userId,
-          change_note: input.change_note ?? 'Initial version',
         },
       });
 
@@ -182,15 +192,12 @@ export const kbV2Router = createTRPCRouter({
         where: { id },
         data: {
           title: rest.title,
-          body: rest.body,
-          body_html: rest.body_html ?? null,
+          content: rest.content,
+          content_html: rest.content_html ?? null,
           category_id: rest.category_id ?? null,
-          status: rest.status,
-          visibility: rest.visibility,
+          status: rest.status as HdArticleStatus,
+          visibility: rest.visibility as HdArticleVisibility,
           tags: rest.tags,
-          meta_description: rest.meta_description ?? null,
-          seo_keywords: rest.seo_keywords ?? null,
-          featured_image_url: rest.featured_image_url ?? null,
           ...(rest.status === 'published' && existing.status !== 'published' ? { published_at: new Date() } : {}),
         },
       });
@@ -202,12 +209,12 @@ export const kbV2Router = createTRPCRouter({
           article_id: id,
           version_number: versionNumber,
           title: rest.title,
-          body: rest.body,
-          body_html: rest.body_html ?? null,
+          content: rest.content,
           changed_by: userId,
-          change_note: change_note ?? null,
         },
       });
+
+      void change_note; // kept for API compatibility
 
       return updated;
     }),
@@ -220,7 +227,7 @@ export const kbV2Router = createTRPCRouter({
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Article not found' });
       return ctx.prisma.hdArticle.update({
         where: { id: input.id },
-        data: { status: 'published', published_at: new Date() },
+        data: { status: 'published' as HdArticleStatus, published_at: new Date() },
       });
     }),
 
@@ -230,7 +237,7 @@ export const kbV2Router = createTRPCRouter({
       const orgId = ctx.session.user.organizationId;
       const existing = await ctx.prisma.hdArticle.findFirst({ where: { id: input.id, organization_id: orgId } });
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Article not found' });
-      return ctx.prisma.hdArticle.update({ where: { id: input.id }, data: { status: 'archived' } });
+      return ctx.prisma.hdArticle.update({ where: { id: input.id }, data: { status: 'archived' as HdArticleStatus } });
     }),
 
   versions: protectedProcedure
@@ -262,7 +269,7 @@ export const kbV2Router = createTRPCRouter({
 
       const updated = await ctx.prisma.hdArticle.update({
         where: { id: input.article_id },
-        data: { title: version.title, body: version.body, body_html: version.body_html },
+        data: { title: version.title, content: version.content },
       });
 
       await ctx.prisma.hdArticleVersion.create({
@@ -270,10 +277,8 @@ export const kbV2Router = createTRPCRouter({
           article_id: input.article_id,
           version_number: article._count.versions + 1,
           title: version.title,
-          body: version.body,
-          body_html: version.body_html ?? null,
+          content: version.content,
           changed_by: userId,
-          change_note: `Reverted to version ${version.version_number}`,
         },
       });
 
@@ -288,13 +293,11 @@ export const kbV2Router = createTRPCRouter({
       article_id: z.string(),
       is_helpful: z.boolean(),
       comment: z.string().max(1000).optional(),
-      ticket_id: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const feedback = await ctx.prisma.hdArticleFeedback.create({
         data: {
           article_id: input.article_id,
-          ticket_id: input.ticket_id ?? null,
           is_helpful: input.is_helpful,
           comment: input.comment ?? null,
         },
@@ -328,17 +331,33 @@ export const kbV2Router = createTRPCRouter({
   // -------------------------------------------------------------------------
   listCategories: protectedProcedure.query(async ({ ctx }) => {
     const orgId = ctx.session.user.organizationId;
-    return ctx.prisma.hdCategory.findMany({
+    const categories = await ctx.prisma.hdCategory.findMany({
       where: { organization_id: orgId, parent_id: null },
       include: {
         children: {
-          include: { _count: { select: { articles: true } } },
           orderBy: { position: 'asc' },
         },
-        _count: { select: { articles: true } },
       },
       orderBy: { position: 'asc' },
     });
+
+    // Count articles per category separately
+    const allCatIds = categories.flatMap((c) => [c.id, ...c.children.map((ch) => ch.id)]);
+    const articleCounts = await ctx.prisma.hdArticle.groupBy({
+      by: ['category_id'],
+      where: { category_id: { in: allCatIds } },
+      _count: { id: true },
+    });
+    const countMap = new Map(articleCounts.map((r) => [r.category_id, r._count.id]));
+
+    return categories.map((c) => ({
+      ...c,
+      _count: { articles: countMap.get(c.id) ?? 0 },
+      children: c.children.map((ch) => ({
+        ...ch,
+        _count: { articles: countMap.get(ch.id) ?? 0 },
+      })),
+    }));
   }),
 
   createCategory: protectedProcedure

@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { use, useState } from "react";
 import { ArrowLeft, PlayCircle, CheckCircle2, XCircle, ClipboardCheck } from "lucide-react";
@@ -19,11 +17,11 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
-type ProdStatus = "draft" | "confirmed" | "in_progress" | "completed" | "cancelled";
+type ProdStatus = "draft" | "released" | "in_progress" | "completed" | "cancelled";
 
 const STATUS_STEPS: Record<ProdStatus, number> = {
   draft: 0,
-  confirmed: 1,
+  released: 1,
   in_progress: 2,
   completed: 3,
   cancelled: -1,
@@ -36,9 +34,9 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
 
   const { data: order, isLoading } = api.inventory.production.get.useQuery({ id });
 
-  const confirmMutation = api.inventory.production.confirm.useMutation({
-    onSuccess: () => { toast.success("Order confirmed — components reserved"); void utils.inventory.production.get.invalidate({ id }); },
-    onError: (e) => toast.error(e.message),
+  const confirmMutation = api.inventory.production.release.useMutation({
+    onSuccess: () => { toast.success("Order released — components reserved"); void utils.inventory.production.get.invalidate({ id }); },
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   const startMutation = api.inventory.production.start.useMutation({
@@ -67,7 +65,11 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
   const status = order.status as ProdStatus;
   const step = STATUS_STEPS[status];
 
-  const scaleFactor = Number(order.quantity) / Number(order.bom.quantity);
+  const plannedQty = Number(order.planned_qty);
+  const outputQty = Number(order.bom?.output_qty ?? 1);
+  const scaleFactor = plannedQty / outputQty;
+
+  const productName = order.bom?.product?.name ?? "Unknown Product";
 
   return (
     <div className="space-y-6">
@@ -78,12 +80,12 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
         <div className="flex-1">
           <h1 className="text-2xl font-bold">{order.order_number}</h1>
           <p className="text-muted-foreground mt-0.5">
-            {order.product.name} · Qty: {Number(order.quantity)} · {order.warehouse.name}
+            {productName} · Qty: {plannedQty}
           </p>
         </div>
         <span className={cn("px-3 py-1.5 rounded-full text-sm font-medium capitalize", {
           "bg-muted text-muted-foreground": status === "draft",
-          "bg-blue-500/10 text-blue-600": status === "confirmed",
+          "bg-blue-500/10 text-blue-600": status === "released",
           "bg-amber-500/10 text-amber-600": status === "in_progress",
           "bg-green-500/10 text-green-600": status === "completed",
           "bg-red-500/10 text-red-600": status === "cancelled",
@@ -96,7 +98,7 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
       {status !== "cancelled" && (
         <div className="bg-card border border-border rounded-2xl p-6">
           <div className="flex items-center justify-between">
-            {["Draft", "Confirm", "Start", "Complete"].map((label, i) => (
+            {["Draft", "Released", "In Progress", "Complete"].map((label, i) => (
               <div key={label} className="flex flex-col items-center flex-1 relative">
                 {i > 0 && (
                   <div className={cn("absolute left-0 top-4 h-0.5 w-full -translate-y-1/2 -z-10", step >= i ? "bg-brand-500" : "bg-border")} />
@@ -120,7 +122,7 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
                 {confirmMutation.isPending ? "Confirming…" : "Confirm & Reserve Materials"}
               </button>
             )}
-            {status === "confirmed" && (
+            {status === "released" && (
               <button onClick={() => startMutation.mutate({ id })} disabled={startMutation.isPending}
                 className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white px-6 py-2.5 rounded-lg text-sm font-medium">
                 <PlayCircle className="w-4 h-4" />
@@ -134,7 +136,7 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
                 {completeMutation.isPending ? "Completing…" : "Complete Production"}
               </button>
             )}
-            {["draft", "confirmed", "in_progress"].includes(status) && (
+            {["draft", "released", "in_progress"].includes(status) && (
               <button onClick={() => setConfirmCancelOpen(true)} disabled={cancelMutation.isPending}
                 className="flex items-center gap-1.5 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-60 text-red-500 px-4 py-2.5 rounded-lg text-sm font-medium">
                 <XCircle className="w-4 h-4" />
@@ -146,45 +148,45 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
       )}
 
       {/* BOM Components needed */}
-      <div className="bg-card border border-border rounded-2xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-border">
-          <h2 className="font-semibold">Materials Required</h2>
-          <p className="text-sm text-muted-foreground mt-0.5">Based on BOM: {order.bom.name} v{order.bom.version}</p>
+      {order.bom && (
+        <div className="bg-card border border-border rounded-2xl overflow-hidden">
+          <div className="px-6 py-4 border-b border-border">
+            <h2 className="font-semibold">Materials Required</h2>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Based on BOM: {order.bom.name}{order.bom.version ? ` v${order.bom.version}` : ""}
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  {["Component", "Per Output", "Required Total", "Unit"].map((h) => (
+                    <th key={h} className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {order.bom.lines.map((line) => {
+                  const totalRequired = Number(line.quantity) * scaleFactor;
+                  return (
+                    <tr key={line.id} className="hover:bg-muted/20">
+                      <td className="px-5 py-3">
+                        <p className="font-medium text-sm">{line.component.name}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{line.component.sku}</p>
+                      </td>
+                      <td className="px-5 py-3 text-sm">{Number(line.quantity)}</td>
+                      <td className="px-5 py-3 text-sm font-semibold">{totalRequired.toFixed(2)}</td>
+                      <td className="px-5 py-3 text-sm text-muted-foreground">
+                        {String(line.unit_of_measure)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-border bg-muted/30">
-                {["Component", "Per Output", "Required Total", "Scrap %", "Unit"].map((h) => (
-                  <th key={h} className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {order.bom.lines.map((line) => {
-                const scrapFactor = 1 + Number(line.scrap_percent) / 100;
-                const totalRequired = Number(line.quantity) * scaleFactor * scrapFactor;
-                return (
-                  <tr key={line.id} className="hover:bg-muted/20">
-                    <td className="px-5 py-3">
-                      <p className="font-medium text-sm">{line.component_product.name}</p>
-                      <p className="text-xs text-muted-foreground font-mono">{line.component_product.sku}</p>
-                    </td>
-                    <td className="px-5 py-3 text-sm">{Number(line.quantity)}</td>
-                    <td className="px-5 py-3 text-sm font-semibold">{totalRequired.toFixed(2)}</td>
-                    <td className="px-5 py-3 text-sm">
-                      {Number(line.scrap_percent) > 0 ? <span className="text-amber-600">{Number(line.scrap_percent)}%</span> : "—"}
-                    </td>
-                    <td className="px-5 py-3 text-sm text-muted-foreground">
-                      {line.unit ?? String(line.component_product.unit_of_measure)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      )}
 
       {/* Timeline */}
       <div className="bg-card border border-border rounded-2xl p-6">
@@ -192,7 +194,7 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
           {[
             { label: "Created", value: format(new Date(order.created_at), "MMM dd, yyyy") },
-            { label: "Scheduled Start", value: order.scheduled_start ? format(new Date(order.scheduled_start), "MMM dd, yyyy") : "—" },
+            { label: "Planned Start", value: order.planned_start ? format(new Date(order.planned_start), "MMM dd, yyyy") : "—" },
             { label: "Actual Start", value: order.actual_start ? format(new Date(order.actual_start), "MMM dd, yyyy HH:mm") : "—" },
             { label: "Completed", value: order.actual_end ? format(new Date(order.actual_end), "MMM dd, yyyy HH:mm") : "—" },
           ].map(({ label, value }) => (
@@ -209,18 +211,19 @@ export default function ProductionDetailPage({ params }: { params: Promise<{ id:
           </div>
         )}
       </div>
-    <Dialog open={confirmCancelOpen} onOpenChange={setConfirmCancelOpen}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Cancel this order?</DialogTitle>
-          <DialogDescription>This action cannot be undone.</DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setConfirmCancelOpen(false)}>Back</Button>
-          <Button variant="destructive" onClick={() => { cancelMutation.mutate({ id }); setConfirmCancelOpen(false); }}>Cancel Order</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+
+      <Dialog open={confirmCancelOpen} onOpenChange={setConfirmCancelOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancel this order?</DialogTitle>
+            <DialogDescription>This action cannot be undone.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmCancelOpen(false)}>Back</Button>
+            <Button variant="destructive" onClick={() => { cancelMutation.mutate({ id }); setConfirmCancelOpen(false); }}>Cancel Order</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

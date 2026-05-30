@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { useState } from "react";
 import { Plus, Search, Users, X, Building2, Phone, Mail } from "lucide-react";

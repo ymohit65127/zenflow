@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -235,7 +234,7 @@ export const payrollRouter = createTRPCRouter({
         if (!revision) continue;
 
         const ctc = Number(revision.ctc);
-        const components = revision.structure.components as SalaryComponent[];
+        const components = revision.structure.components as unknown as SalaryComponent[];
         const computed = computePayroll(ctc, components);
 
         await ctx.prisma.hrPayrollEntry.upsert({

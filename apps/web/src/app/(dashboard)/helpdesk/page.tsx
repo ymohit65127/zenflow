@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { useState } from 'react';
@@ -66,7 +65,7 @@ function NewTicketDialog({ open, onClose }: { open: boolean; onClose: () => void
           <h2 className="text-lg font-semibold">New Ticket</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted transition-colors"><X className="w-5 h-5" /></button>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); createMutation.mutate({ subject: form.subject, description: form.description || undefined, priority: form.priority as 'medium', type: form.type as 'question' }); }} className="p-6 space-y-4">
+        <form onSubmit={(e) => { e.preventDefault(); createMutation.mutate({ subject: form.subject, description: form.description || undefined, priority: form.priority as 'medium' }); }} className="p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1.5">Subject *</label>
             <input required value={form.subject} onChange={set('subject')} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50" placeholder="Brief summary of the issue…" />
@@ -211,7 +210,7 @@ export default function HelpDeskDashboard() {
                     <div className="flex items-center gap-2 shrink-0">
                       <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', PRIORITY_COLORS[ticket.priority] ?? '')}>{ticket.priority}</span>
                       <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', STATUS_COLORS[ticket.status] ?? '')}>{ticket.status.replace('_', ' ')}</span>
-                      {ticket.sla_status && ticket.sla_status !== 'ok' && <SlaStatusBadge slaStatus={ticket.sla_status} />}
+                      {ticket.sla_status && ticket.sla_status !== 'active' && ticket.sla_status !== 'completed' && <SlaStatusBadge slaStatus={ticket.sla_status} />}
                     </div>
                   </Link>
                 ))}
@@ -237,7 +236,7 @@ export default function HelpDeskDashboard() {
                       <p className="font-medium text-sm truncate">{ticket.subject}</p>
                       <p className="text-xs text-muted-foreground mt-0.5">{ticket.ticket_number}</p>
                     </div>
-                    <SlaStatusBadge slaStatus={ticket.sla_status} />
+                    <SlaStatusBadge slaStatus={ticket.sla_status ?? ''} />
                   </Link>
                 ))}
               </div>

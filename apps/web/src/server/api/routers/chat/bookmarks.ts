@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -83,8 +82,7 @@ export const bookmarksRouter = createTRPCRouter({
         include: {
           message: {
             include: {
-              user: { select: { id: true, name: true, avatar_url: true } },
-              channel: { select: { id: true, name: true, type: true } },
+              channel: { select: { id: true, name: true, channel_type: true } },
             },
           },
         },

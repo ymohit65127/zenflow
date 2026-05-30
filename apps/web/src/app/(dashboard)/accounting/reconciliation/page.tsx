@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";

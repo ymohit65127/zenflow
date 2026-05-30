@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { useState } from "react";
 import Link from "next/link";
@@ -73,7 +71,6 @@ function CreateAccountDialog({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
     name: "",
-    domain: "",
     industry: "",
     website: "",
     phone: "",
@@ -83,7 +80,7 @@ function CreateAccountDialog({ onCreated }: { onCreated: () => void }) {
     onSuccess: () => {
       toast.success("Account created");
       setOpen(false);
-      setForm({ name: "", domain: "", industry: "", website: "", phone: "" });
+      setForm({ name: "", industry: "", website: "", phone: "" });
       onCreated();
     },
     onError: (err) => toast.error(err.message),
@@ -107,14 +104,6 @@ function CreateAccountDialog({ onCreated }: { onCreated: () => void }) {
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               placeholder="Acme Corporation"
-            />
-          </div>
-          <div>
-            <Label>Domain</Label>
-            <Input
-              value={form.domain}
-              onChange={(e) => setForm({ ...form, domain: e.target.value })}
-              placeholder="acme.com"
             />
           </div>
           <div>
@@ -147,7 +136,6 @@ function CreateAccountDialog({ onCreated }: { onCreated: () => void }) {
             onClick={() =>
               createMutation.mutate({
                 name: form.name,
-                domain: form.domain || undefined,
                 industry: form.industry || undefined,
                 website: form.website || undefined,
                 phone: form.phone || undefined,
@@ -242,7 +230,7 @@ export default function AccountsPage() {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">
-              {accounts.reduce((sum, a) => sum + (a._count?.contacts ?? 0), 0)}
+              {accounts.length}
             </p>
           </CardContent>
         </Card>
@@ -252,7 +240,7 @@ export default function AccountsPage() {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">
-              {accounts.reduce((sum, a) => sum + (a._count?.deals ?? 0), 0)}
+              0
             </p>
           </CardContent>
         </Card>
@@ -296,10 +284,10 @@ export default function AccountsPage() {
                     </Link>
                   </TableCell>
                   <TableCell>
-                    {account.domain ? (
+                    {account.website ? (
                       <span className="flex items-center gap-1 text-muted-foreground text-sm">
                         <Globe className="w-3 h-3" />
-                        {account.domain}
+                        {account.website}
                       </span>
                     ) : (
                       <span className="text-muted-foreground text-sm">—</span>
@@ -315,21 +303,17 @@ export default function AccountsPage() {
                   <TableCell>
                     <span className="flex items-center gap-1 text-sm">
                       <Users className="w-3.5 h-3.5 text-muted-foreground" />
-                      {account._count?.contacts ?? 0}
+                      —
                     </span>
                   </TableCell>
                   <TableCell>
                     <span className="flex items-center gap-1 text-sm">
                       <TrendingUp className="w-3.5 h-3.5 text-muted-foreground" />
-                      {account._count?.deals ?? 0}
+                      —
                     </span>
                   </TableCell>
                   <TableCell>
-                    {account.owner ? (
-                      <span className="text-sm">{account.owner.name}</span>
-                    ) : (
-                      <span className="text-muted-foreground text-sm">—</span>
-                    )}
+                    <span className="text-muted-foreground text-sm">—</span>
                   </TableCell>
                   <TableCell>
                     <DropdownMenu>

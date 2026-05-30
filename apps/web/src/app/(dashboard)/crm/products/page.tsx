@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { useState } from "react";
 import { api } from "@/trpc/react";
@@ -55,13 +53,11 @@ function ProductFormDialog({
   product?: {
     id: string;
     name: string;
-    code: string | null;
+    sku: string | null;
     description: string | null;
     unit_price: unknown;
     currency: string;
-    tax_rate: unknown;
-    unit: string | null;
-    category: string | null;
+    tax_percent: unknown;
     is_active: boolean;
   };
   onSaved: () => void;
@@ -70,13 +66,11 @@ function ProductFormDialog({
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
     name: product?.name ?? "",
-    code: product?.code ?? "",
+    sku: product?.sku ?? "",
     description: product?.description ?? "",
     unit_price: product ? Number(product.unit_price) : 0,
     currency: product?.currency ?? "USD",
-    tax_rate: product ? Number(product.tax_rate) : 0,
-    unit: product?.unit ?? "",
-    category: product?.category ?? "",
+    tax_percent: product ? Number(product.tax_percent) : 0,
     is_active: product?.is_active ?? true,
   });
 
@@ -112,8 +106,8 @@ function ProductFormDialog({
             <div>
               <Label>Code / SKU</Label>
               <Input
-                value={form.code}
-                onChange={(e) => setForm({ ...form, code: e.target.value })}
+                value={form.sku}
+                onChange={(e) => setForm({ ...form, sku: e.target.value })}
                 placeholder="LIC-001"
               />
             </div>
@@ -147,32 +141,14 @@ function ProductFormDialog({
               />
             </div>
             <div>
-              <Label>Tax Rate (0–1)</Label>
+              <Label>Tax %</Label>
               <Input
                 type="number"
                 min={0}
-                max={1}
+                max={100}
                 step={0.01}
-                value={form.tax_rate}
-                onChange={(e) => setForm({ ...form, tax_rate: Number(e.target.value) })}
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Unit</Label>
-              <Input
-                value={form.unit}
-                onChange={(e) => setForm({ ...form, unit: e.target.value })}
-                placeholder="seat, license, hour"
-              />
-            </div>
-            <div>
-              <Label>Category</Label>
-              <Input
-                value={form.category}
-                onChange={(e) => setForm({ ...form, category: e.target.value })}
-                placeholder="Software"
+                value={form.tax_percent}
+                onChange={(e) => setForm({ ...form, tax_percent: Number(e.target.value) })}
               />
             </div>
           </div>
@@ -189,13 +165,11 @@ function ProductFormDialog({
             onClick={() => {
               const data = {
                 name: form.name,
-                code: form.code || undefined,
+                sku: form.sku || undefined,
                 description: form.description || undefined,
                 unit_price: form.unit_price,
                 currency: form.currency,
-                tax_rate: form.tax_rate,
-                unit: form.unit || undefined,
-                category: form.category || undefined,
+                tax_percent: form.tax_percent,
                 is_active: form.is_active,
               };
               if (isEditing) {
@@ -314,30 +288,23 @@ export default function ProductsPage() {
                   <TableCell>
                     <div>
                       <p className="font-medium">{product.name}</p>
-                      {product.unit && (
-                        <p className="text-xs text-muted-foreground">per {product.unit}</p>
-                      )}
                     </div>
                   </TableCell>
                   <TableCell>
-                    {product.code ? (
-                      <span className="font-mono text-xs text-muted-foreground">{product.code}</span>
+                    {product.sku ? (
+                      <span className="font-mono text-xs text-muted-foreground">{product.sku}</span>
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
                   <TableCell>
-                    {product.category ? (
-                      <Badge variant="outline">{product.category}</Badge>
-                    ) : (
-                      <span className="text-muted-foreground text-sm">—</span>
-                    )}
+                    <span className="text-muted-foreground text-sm">—</span>
                   </TableCell>
                   <TableCell className="text-right font-semibold">
                     {formatCurrency(Number(product.unit_price))}
                   </TableCell>
                   <TableCell className="text-right text-muted-foreground">
-                    {(Number(product.tax_rate) * 100).toFixed(0)}%
+                    {Number(product.tax_percent).toFixed(0)}%
                   </TableCell>
                   <TableCell>
                     <button

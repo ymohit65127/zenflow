@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { use, useState } from 'react';
@@ -38,7 +37,7 @@ function AddReviewDialog({
   onClose: () => void;
 }) {
   const utils = api.useUtils();
-  const { data: employees = [] } = api.hr.employees.list.useQuery({ limit: 100 });
+  const { data: employees } = api.hr.employees.list.useQuery({ limit: 100 });
   const [form, setForm] = useState({ employee_id: '', reviewer_id: '' });
 
   const create = api.hr.hr_performance.createReview.useMutation({
@@ -57,14 +56,14 @@ function AddReviewDialog({
             <label className="block text-sm font-medium mb-1.5">Employee *</label>
             <select value={form.employee_id} onChange={(e) => setForm((f) => ({ ...f, employee_id: e.target.value }))} required className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none">
               <option value="">Select employee</option>
-              {employees.items?.map((e) => <option key={e.id} value={e.id}>{e.first_name} {e.last_name}</option>)}
+              {employees?.items?.map((emp: { id: string; first_name: string; last_name: string }) => <option key={emp.id} value={emp.id}>{emp.first_name} {emp.last_name}</option>)}
             </select>
           </div>
           <div>
             <label className="block text-sm font-medium mb-1.5">Reviewer *</label>
             <select value={form.reviewer_id} onChange={(e) => setForm((f) => ({ ...f, reviewer_id: e.target.value }))} required className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none">
               <option value="">Select reviewer</option>
-              {employees.items?.map((e) => <option key={e.id} value={e.id}>{e.first_name} {e.last_name}</option>)}
+              {employees?.items?.map((emp: { id: string; first_name: string; last_name: string }) => <option key={emp.id} value={emp.id}>{emp.first_name} {emp.last_name}</option>)}
             </select>
           </div>
           <div className="flex gap-3">

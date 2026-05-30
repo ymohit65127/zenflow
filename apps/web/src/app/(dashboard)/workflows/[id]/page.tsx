@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -781,20 +779,23 @@ export default function WorkflowEditorPage() {
         {/* Canvas */}
         <div className="flex-1 overflow-auto p-6 bg-muted/30">
           {/* v2 Visual Flow Diagram (CSS nodes + edges) */}
-          {workflow.nodes && Array.isArray(workflow.nodes) && (workflow.nodes as unknown[]).length > 0 && (
-            <div className="mb-6 bg-card border border-border rounded-2xl overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                <span className="text-sm font-semibold">Visual Flow Diagram</span>
-                <span className="text-xs text-muted-foreground">{(workflow.nodes as unknown[]).length} nodes · {Array.isArray(workflow.edges) ? (workflow.edges as unknown[]).length : 0} edges</span>
+          {(() => {
+            const wfAny = workflow as unknown as { nodes?: unknown; edges?: unknown };
+            const wfNodes = Array.isArray(wfAny.nodes) ? (wfAny.nodes as WorkflowNodeV2[]) : [];
+            const wfEdges = Array.isArray(wfAny.edges) ? (wfAny.edges as WorkflowEdgeV2[]) : [];
+            if (wfNodes.length === 0) return null;
+            return (
+              <div className="mb-6 bg-card border border-border rounded-2xl overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                  <span className="text-sm font-semibold">Visual Flow Diagram</span>
+                  <span className="text-xs text-muted-foreground">{wfNodes.length} nodes · {wfEdges.length} edges</span>
+                </div>
+                <div className="p-4 overflow-auto">
+                  <FlowDiagram nodes={wfNodes} edges={wfEdges} />
+                </div>
               </div>
-              <div className="p-4 overflow-auto">
-                <FlowDiagram
-                  nodes={workflow.nodes as WorkflowNodeV2[]}
-                  edges={workflow.edges as WorkflowEdgeV2[]}
-                />
-              </div>
-            </div>
-          )}
+            );
+          })()}
           <div className="max-w-lg mx-auto space-y-0">
             {/* Trigger node */}
             <div className="flex flex-col items-center">

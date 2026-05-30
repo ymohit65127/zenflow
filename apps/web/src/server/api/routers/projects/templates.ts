@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -42,17 +41,21 @@ export const templatesRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
 
-      return ctx.prisma.projectTemplate.findMany({
+      const templates = await ctx.prisma.projectTemplate.findMany({
         where: {
           organization_id: orgId,
+          deleted_at: null,
           ...(input.category ? { category: input.category } : {}),
         },
-        include: {
-          creator: { select: { id: true, name: true, avatar_url: true } },
-          _count: { select: { projects: true } },
-        },
-        orderBy: [{ usage_count: 'desc' }, { created_at: 'desc' }],
+        orderBy: { created_at: 'desc' },
       });
+
+      return templates.map((t) => ({
+        ...t,
+        template_data: t.config,
+        creator: null as null,
+        _count: { projects: 0 },
+      }));
     }),
 
   getById: protectedProcedure
@@ -60,13 +63,10 @@ export const templatesRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
       const template = await ctx.prisma.projectTemplate.findFirst({
-        where: { id: input.id, organization_id: orgId },
-        include: {
-          creator: { select: { id: true, name: true, avatar_url: true } },
-        },
+        where: { id: input.id, organization_id: orgId, deleted_at: null },
       });
       if (!template) throw new TRPCError({ code: 'NOT_FOUND', message: 'Template not found' });
-      return template;
+      return { ...template, template_data: template.config };
     }),
 
   create: protectedProcedure
@@ -76,7 +76,7 @@ export const templatesRouter = createTRPCRouter({
         description: z.string().optional(),
         category: z.string().optional(),
         methodology: z
-          .enum(['agile', 'waterfall', 'hybrid', 'kanban'])
+          .enum(['agile', 'waterfall', 'hybrid', 'kanban', 'scrum'])
           .default('agile'),
         templateData: TemplateDataSchema,
         isPublic: z.boolean().default(false),
@@ -86,18 +86,20 @@ export const templatesRouter = createTRPCRouter({
       const orgId = ctx.session.user.organizationId;
       const userId = ctx.session.user.id;
 
-      return ctx.prisma.projectTemplate.create({
+      const template = await ctx.prisma.projectTemplate.create({
         data: {
           organization_id: orgId,
           name: input.name,
           description: input.description ?? null,
           category: input.category ?? null,
           methodology: input.methodology,
-          template_data: input.templateData,
-          is_public: input.isPublic,
+          config: input.templateData,
+          is_global: input.isPublic,
           created_by: userId,
         },
       });
+
+      return { ...template, template_data: template.config };
     }),
 
   createFromProject: protectedProcedure
@@ -115,62 +117,65 @@ export const templatesRouter = createTRPCRouter({
 
       const project = await ctx.prisma.project.findFirst({
         where: { id: input.projectId, organization_id: orgId, deleted_at: null },
-        include: {
-          phases: { orderBy: { position: 'asc' } },
-          task_statuses: { orderBy: { position: 'asc' } },
-          tasks: {
-            where: { deleted_at: null, parent_task_id: null },
-            orderBy: { position: 'asc' },
-            take: 50,
-          },
-          milestones: { orderBy: { due_date: 'asc' } },
-        },
       });
       if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
+
+      // Load phases and milestones separately
+      const phases = await ctx.prisma.projectPhase.findMany({
+        where: { project_id: input.projectId, deleted_at: null },
+        orderBy: { position: 'asc' },
+      });
+
+      const milestones = await ctx.prisma.projectMilestone.findMany({
+        where: { project_id: input.projectId, deleted_at: null },
+        orderBy: { due_date: 'asc' },
+      });
+
+      const tasks = await ctx.prisma.task.findMany({
+        where: { project_id: input.projectId, deleted_at: null, parent_id: null },
+        orderBy: { position: 'asc' },
+        take: 50,
+      });
 
       const startDate = project.start_date ?? new Date();
 
       const templateData = {
-        phases: project.phases.map((p) => ({
+        phases: phases.map((p) => ({
           name: p.name,
-          color: p.color,
+          color: p.color ?? '#6B7280',
           position: p.position,
         })),
-        statuses: project.task_statuses.map((s) => ({
-          name: s.name,
-          color: s.color,
-          statusType: s.status_type,
-          isDefault: s.is_default,
-          position: s.position,
-        })),
-        tasks: project.tasks.map((t) => ({
+        statuses: [] as Array<{ name: string; color: string; statusType: string; isDefault: boolean; position: number }>,
+        tasks: tasks.map((t) => ({
           title: t.title,
-          phaseIndex: project.phases.findIndex((p) => p.id === t.phase_id),
-          taskType: t.task_type,
+          phaseIndex: -1,
+          taskType: t.type,
           priority: t.priority,
-          estimatePoints: t.estimate_points ?? undefined,
+          estimatePoints: t.story_points ?? undefined,
         })),
-        milestones: project.milestones.map((m) => ({
+        milestones: milestones.map((m) => ({
           name: m.name,
-          color: m.color,
+          color: '#F59E0B',
           dueDaysFromStart: Math.round(
             (m.due_date.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
           ),
         })),
       };
 
-      return ctx.prisma.projectTemplate.create({
+      const template = await ctx.prisma.projectTemplate.create({
         data: {
           organization_id: orgId,
           name: input.name,
           description: input.description ?? null,
           category: null,
-          methodology: project.methodology ?? 'agile',
-          template_data: templateData,
-          is_public: input.isPublic,
+          methodology: 'agile',
+          config: templateData,
+          is_global: input.isPublic,
           created_by: userId,
         },
       });
+
+      return { ...template, template_data: template.config };
     }),
 
   applyToProject: protectedProcedure
@@ -186,7 +191,7 @@ export const templatesRouter = createTRPCRouter({
 
       const [template, project] = await Promise.all([
         ctx.prisma.projectTemplate.findFirst({
-          where: { id: input.templateId, organization_id: orgId },
+          where: { id: input.templateId, organization_id: orgId, deleted_at: null },
         }),
         ctx.prisma.project.findFirst({
           where: { id: input.projectId, organization_id: orgId, deleted_at: null },
@@ -196,7 +201,7 @@ export const templatesRouter = createTRPCRouter({
       if (!template) throw new TRPCError({ code: 'NOT_FOUND', message: 'Template not found' });
       if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
 
-      const data = template.template_data as {
+      const data = template.config as {
         phases?: Array<{ name: string; color: string; position: number }>;
         statuses?: Array<{
           name: string;
@@ -218,9 +223,11 @@ export const templatesRouter = createTRPCRouter({
       if (existingPhaseCount === 0 && data.phases?.length) {
         for (let i = 0; i < data.phases.length; i++) {
           const p = data.phases[i];
+          if (!p) continue;
           const phase = await ctx.prisma.projectPhase.create({
             data: {
               project_id: input.projectId,
+              organization_id: orgId,
               name: p.name,
               color: p.color,
               position: p.position,
@@ -231,45 +238,20 @@ export const templatesRouter = createTRPCRouter({
         }
       }
 
-      // Create statuses if none exist
-      const existingStatusCount = await ctx.prisma.taskStatus.count({
-        where: { project_id: input.projectId },
-      });
-
-      if (existingStatusCount === 0 && data.statuses?.length) {
-        await ctx.prisma.taskStatus.createMany({
-          data: data.statuses.map((s) => ({
-            project_id: input.projectId,
-            name: s.name,
-            color: s.color,
-            status_type: s.statusType as 'not_started' | 'in_progress' | 'done' | 'cancelled',
-            is_default: s.isDefault ?? false,
-            position: s.position,
-          })),
-        });
-      }
-
       // Create milestones
       if (data.milestones?.length) {
         const startDate = project.start_date ?? new Date();
         await ctx.prisma.projectMilestone.createMany({
           data: data.milestones.map((m) => ({
             project_id: input.projectId,
+            organization_id: orgId,
             name: m.name,
-            color: m.color,
             due_date: new Date(startDate.getTime() + m.dueDaysFromStart * 24 * 60 * 60 * 1000),
             status: 'pending' as const,
-            notify_on_due: true,
             created_by: userId,
           })),
         });
       }
-
-      // Increment usage count
-      await ctx.prisma.projectTemplate.update({
-        where: { id: input.templateId },
-        data: { usage_count: { increment: 1 } },
-      });
 
       return { success: true, phasesCreated: createdPhases.length };
     }),
@@ -281,7 +263,7 @@ export const templatesRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
 
       const template = await ctx.prisma.projectTemplate.findFirst({
-        where: { id: input.id, organization_id: orgId },
+        where: { id: input.id, organization_id: orgId, deleted_at: null },
       });
       if (!template) throw new TRPCError({ code: 'NOT_FOUND', message: 'Template not found' });
 

@@ -1,7 +1,5 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
-import { TRPCError } from '@trpc/server';
 
 export const stockLevelsRouter = createTRPCRouter({
   list: protectedProcedure
@@ -20,7 +18,7 @@ export const stockLevelsRouter = createTRPCRouter({
 
       const levels = await ctx.prisma.invStockLevel.findMany({
         where: {
-          org_id: orgId,
+          organization_id: orgId,
           ...(input.product_id ? { product_id: input.product_id } : {}),
           ...(input.warehouse_id ? { warehouse_id: input.warehouse_id } : {}),
         },
@@ -32,12 +30,10 @@ export const stockLevelsRouter = createTRPCRouter({
               sku: true,
               unit_of_measure: true,
               reorder_point: true,
-              reorder_quantity: true,
+              reorder_qty: true,
             },
           },
-          variant: { select: { id: true, sku: true, variant_attributes: true } },
           warehouse: { select: { id: true, name: true, code: true } },
-          location: { select: { id: true, name: true, code: true, location_type: true } },
         },
         take: input.limit,
         skip: input.offset,
@@ -50,22 +46,25 @@ export const stockLevelsRouter = createTRPCRouter({
         filtered = filtered.filter(
           (l) =>
             l.product.reorder_point !== null &&
-            Number(l.quantity_on_hand) <= Number(l.product.reorder_point) &&
-            Number(l.quantity_on_hand) > 0
+            Number(l.quantity) <= Number(l.product.reorder_point) &&
+            Number(l.quantity) > 0
         );
       }
       if (input.out_of_stock_only) {
-        filtered = filtered.filter((l) => Number(l.quantity_on_hand) <= 0);
+        filtered = filtered.filter((l) => Number(l.quantity) <= 0);
       }
 
       return filtered.map((l) => ({
         ...l,
-        quantity_available: Number(l.quantity_on_hand) - Number(l.quantity_reserved),
+        quantity_on_hand: Number(l.quantity),
+        quantity_reserved: Number(l.reserved_qty),
+        quantity_available: Number(l.quantity) - Number(l.reserved_qty),
+        average_cost: Number(l.avg_cost),
         is_low_stock:
           l.product.reorder_point !== null &&
-          Number(l.quantity_on_hand) <= Number(l.product.reorder_point) &&
-          Number(l.quantity_on_hand) > 0,
-        is_out_of_stock: Number(l.quantity_on_hand) <= 0,
+          Number(l.quantity) <= Number(l.product.reorder_point) &&
+          Number(l.quantity) > 0,
+        is_out_of_stock: Number(l.quantity) <= 0,
       }));
     }),
 
@@ -81,14 +80,14 @@ export const stockLevelsRouter = createTRPCRouter({
       const orgId = ctx.session.user.organizationId as string;
       const levels = await ctx.prisma.invStockLevel.findMany({
         where: {
-          org_id: orgId,
+          organization_id: orgId,
           product_id: input.product_id,
           ...(input.variant_id ? { variant_id: input.variant_id } : {}),
           ...(input.warehouse_id ? { warehouse_id: input.warehouse_id } : {}),
         },
       });
       const total = levels.reduce(
-        (sum, l) => sum + Number(l.quantity_on_hand) - Number(l.quantity_reserved),
+        (sum, l) => sum + Number(l.quantity) - Number(l.reserved_qty),
         0
       );
       return { available: total, levels };
@@ -100,7 +99,7 @@ export const stockLevelsRouter = createTRPCRouter({
       const orgId = ctx.session.user.organizationId as string;
       const levels = await ctx.prisma.invStockLevel.findMany({
         where: {
-          org_id: orgId,
+          organization_id: orgId,
           ...(input.warehouse_id ? { warehouse_id: input.warehouse_id } : {}),
         },
         include: {
@@ -109,14 +108,14 @@ export const stockLevelsRouter = createTRPCRouter({
       });
 
       const totalSKUs = new Set(levels.map((l) => l.product_id)).size;
-      const totalValue = levels.reduce((sum, l) => sum + Number(l.total_value), 0);
+      const totalValue = levels.reduce((sum, l) => sum + Number(l.quantity) * Number(l.avg_cost), 0);
       const lowStock = levels.filter(
         (l) =>
           l.product.reorder_point !== null &&
-          Number(l.quantity_on_hand) <= Number(l.product.reorder_point) &&
-          Number(l.quantity_on_hand) > 0
+          Number(l.quantity) <= Number(l.product.reorder_point) &&
+          Number(l.quantity) > 0
       ).length;
-      const outOfStock = levels.filter((l) => Number(l.quantity_on_hand) <= 0).length;
+      const outOfStock = levels.filter((l) => Number(l.quantity) <= 0).length;
 
       return { totalSKUs, totalValue, lowStock, outOfStock };
     }),
@@ -124,35 +123,27 @@ export const stockLevelsRouter = createTRPCRouter({
   reorderAlerts: protectedProcedure.query(async ({ ctx }) => {
     const orgId = ctx.session.user.organizationId as string;
     const products = await ctx.prisma.invProduct.findMany({
-      where: { org_id: orgId, is_active: true, deleted_at: null, reorder_point: { not: null } },
+      where: { organization_id: orgId, is_active: true, deleted_at: null, reorder_point: { not: null } },
       include: {
-        stock_levels: { where: { org_id: orgId } },
-        supplier_prices: { where: { is_preferred: true }, take: 1 },
+        stock_levels: { where: { organization_id: orgId } },
       },
     });
 
     return products
       .map((p) => {
         const totalOnHand = p.stock_levels.reduce(
-          (s, l) => s + Number(l.quantity_on_hand),
+          (s, l) => s + Number(l.quantity),
           0
         );
-        const totalOnOrder = p.stock_levels.reduce(
-          (s, l) => s + Number(l.quantity_on_order),
-          0
-        );
-        const available = totalOnHand + totalOnOrder;
         const reorderPoint = Number(p.reorder_point ?? 0);
-        if (available > reorderPoint) return null;
+        if (totalOnHand > reorderPoint) return null;
         return {
           product_id: p.id,
           sku: p.sku,
           name: p.name,
           current_stock: totalOnHand,
           reorder_point: reorderPoint,
-          reorder_quantity: Number(p.reorder_quantity ?? reorderPoint),
-          preferred_vendor_id: p.preferred_vendor_id ?? null,
-          lead_time_days: p.supplier_prices[0]?.lead_time_days ?? 7,
+          reorder_qty: Number(p.reorder_qty ?? reorderPoint),
         };
       })
       .filter(Boolean);

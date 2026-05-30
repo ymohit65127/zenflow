@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { use, useState } from 'react';
@@ -56,7 +55,8 @@ export default function TimeLogPage({ params }: { params: Promise<{ id: string }
     projectId: id,
   });
 
-  const { data: runningTimer } = api.projects.timeLogs.getRunning.useQuery({});
+  const { data: _runningTimerRaw } = api.projects.timeLogs.getRunning.useQuery({});
+  const runningTimer = _runningTimerRaw as unknown as { id: string; start_time?: Date | string; task?: { title: string } } | null;
 
   const createLog = api.projects.timeLogs.create.useMutation({
     onSuccess: () => {
@@ -130,10 +130,10 @@ export default function TimeLogPage({ params }: { params: Promise<{ id: string }
             <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
             <div>
               <p className="text-sm font-medium text-green-700 dark:text-green-400">
-                Timer running: {(runningTimer.task as { title: string }).title}
+                Timer running: {runningTimer?.task?.title ?? ''}
               </p>
               <p className="text-xs text-green-600 dark:text-green-500">
-                Started {formatDateTime(runningTimer.start_time)}
+                Started {formatDateTime(runningTimer?.start_time ?? new Date())}
               </p>
             </div>
           </div>
@@ -277,7 +277,7 @@ export default function TimeLogPage({ params }: { params: Promise<{ id: string }
                     </div>
                   </td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">
-                    {formatDateTime(log.start_time)}
+                    {log.start_time ? formatDateTime(log.start_time) : formatDateTime(log.logged_date)}
                   </td>
                   <td className="px-4 py-3">
                     <span className="font-medium">{formatDuration(log.duration_minutes)}</span>

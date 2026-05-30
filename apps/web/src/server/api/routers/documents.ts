@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -88,8 +87,8 @@ export const documentsRouter = createTRPCRouter({
       });
 
       // Increment view count (fire and forget)
-      ctx.prisma.document
-        .update({
+      ctx.prisma.docV2
+        .updateMany({
           where: { id: doc.id },
           data: { views_count: { increment: 1 }, last_viewed_at: new Date() },
         })
@@ -121,7 +120,6 @@ export const documentsRouter = createTRPCRouter({
           title: input.title,
           type: input.type,
           parent_id: input.parent_id ?? null,
-          space_id: input.space_id ?? null,
           icon: input.icon ?? null,
           status: 'DRAFT',
           content: (input.content ?? { type: 'doc', content: [] }) as object,
@@ -274,7 +272,7 @@ export const documentsRouter = createTRPCRouter({
       where: { user_id: userId },
       include: {
         document: {
-          select: { id: true, title: true, icon: true, type: true, updated_at: true },
+          select: { id: true, title: true, icon: true, updated_at: true },
         },
       },
       orderBy: { created_at: 'desc' },

@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { use, useState } from 'react';
@@ -15,16 +14,16 @@ import { cn } from '@/lib/utils';
 
 const CATEGORY_COLORS: Record<string, string> = {
   labor: '#6366f1',
-  software: '#06b6d4',
-  hardware: '#f59e0b',
+  materials: '#06b6d4',
+  tools: '#f59e0b',
   travel: '#22c55e',
   other: '#8b5cf6',
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
   labor: 'Labor',
-  software: 'Software',
-  hardware: 'Hardware',
+  materials: 'Materials',
+  tools: 'Tools',
   travel: 'Travel',
   other: 'Other',
 };
@@ -44,7 +43,7 @@ export default function BudgetPage({ params }: { params: Promise<{ id: string }>
 
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
-    category: 'other' as 'labor' | 'software' | 'hardware' | 'travel' | 'other',
+    category: 'other' as 'labor' | 'materials' | 'travel' | 'tools' | 'other',
     description: '',
     budgetedAmount: '',
     actualAmount: '',
@@ -60,7 +59,7 @@ export default function BudgetPage({ params }: { params: Promise<{ id: string }>
       void utils.projects.budget.getCategoryTotals.invalidate({ projectId: id });
       toast.success('Budget entry added');
       setShowForm(false);
-      setForm({ category: 'other', description: '', budgetedAmount: '', actualAmount: '', entryDate: new Date().toISOString().split('T')[0] });
+      setForm({ category: 'other', description: '', budgetedAmount: '', actualAmount: '', entryDate: new Date().toISOString().split('T')[0] } as typeof form);
     },
     onError: (err) => toast.error(err.message),
   });
@@ -82,7 +81,7 @@ export default function BudgetPage({ params }: { params: Promise<{ id: string }>
       description: form.description,
       budgetedAmount: parseFloat(form.budgetedAmount),
       actualAmount: parseFloat(form.actualAmount) || 0,
-      entryDate: new Date(form.entryDate),
+      entryDate: new Date(form.entryDate ?? new Date()),
     });
   };
 
@@ -302,7 +301,7 @@ export default function BudgetPage({ params }: { params: Promise<{ id: string }>
             </thead>
             <tbody>
               {data.entries.map((entry, i) => {
-                const variance = Number(entry.budgeted_amount) - Number(entry.actual_amount);
+                const amount = Number(entry.amount);
                 return (
                   <tr key={entry.id} className={cn('border-b border-border hover:bg-muted/30 transition-colors', i === data.entries.length - 1 && 'border-b-0')}>
                     <td className="px-4 py-3 font-medium">{entry.description}</td>
@@ -313,10 +312,10 @@ export default function BudgetPage({ params }: { params: Promise<{ id: string }>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">{formatDate(entry.entry_date)}</td>
-                    <td className="px-4 py-3 text-right">{formatCurrency(Number(entry.budgeted_amount))}</td>
-                    <td className="px-4 py-3 text-right">{formatCurrency(Number(entry.actual_amount))}</td>
-                    <td className={cn('px-4 py-3 text-right font-medium', variance < 0 ? 'text-red-500' : 'text-green-600')}>
-                      {formatCurrency(variance)}
+                    <td className="px-4 py-3 text-right">{entry.is_expense ? '—' : formatCurrency(amount)}</td>
+                    <td className="px-4 py-3 text-right">{entry.is_expense ? formatCurrency(amount) : '—'}</td>
+                    <td className={cn('px-4 py-3 text-right font-medium', entry.is_expense ? 'text-red-500' : 'text-green-600')}>
+                      {entry.is_expense ? formatCurrency(-amount) : formatCurrency(amount)}
                     </td>
                     <td className="px-4 py-3">
                       <button onClick={() => del.mutate({ id: entry.id })}

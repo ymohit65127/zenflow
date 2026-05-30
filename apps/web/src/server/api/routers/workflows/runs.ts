@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -22,17 +21,16 @@ export const workflowRunsRouter = createTRPCRouter({
       };
 
       const [runs, total] = await Promise.all([
-        ctx.prisma.workflowRun.findMany({
+        ctx.prisma.workflowV2Run.findMany({
           where,
           orderBy: { started_at: 'desc' },
           skip,
           take: pageSize,
           include: {
             workflow: { select: { id: true, name: true, trigger_type: true } },
-            _count: { select: { step_logs: true } },
           },
         }),
-        ctx.prisma.workflowRun.count({ where }),
+        ctx.prisma.workflowV2Run.count({ where }),
       ]);
 
       return { runs, total, page: input.page, pageSize };
@@ -42,7 +40,7 @@ export const workflowRunsRouter = createTRPCRouter({
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
-      const run = await ctx.prisma.workflowRun.findFirst({
+      const run = await ctx.prisma.workflowV2Run.findFirst({
         where: { id: input.id, workflow: { organization_id: orgId } },
         include: {
           workflow: { select: { id: true, name: true, nodes: true, edges: true } },
@@ -57,14 +55,14 @@ export const workflowRunsRouter = createTRPCRouter({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
-      const run = await ctx.prisma.workflowRun.findFirst({
+      const run = await ctx.prisma.workflowV2Run.findFirst({
         where: { id: input.id, workflow: { organization_id: orgId } },
       });
       if (!run) throw new TRPCError({ code: 'NOT_FOUND' });
       if (run.status !== 'running') {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Run is not in running state' });
       }
-      return ctx.prisma.workflowRun.update({
+      return ctx.prisma.workflowV2Run.update({
         where: { id: input.id },
         data: { status: 'cancelled', completed_at: new Date() },
       });
@@ -74,7 +72,7 @@ export const workflowRunsRouter = createTRPCRouter({
     .input(z.object({ runId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
-      const run = await ctx.prisma.workflowRun.findFirst({
+      const run = await ctx.prisma.workflowV2Run.findFirst({
         where: { id: input.runId, workflow: { organization_id: orgId } },
         select: { id: true },
       });

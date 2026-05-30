@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -107,19 +106,18 @@ export const messagesV2Router = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      const message = await ctx.prisma.chatMessage.findUnique({
+      const message = await ctx.prisma.chatMessageV2.findUnique({
         where: { id: input.messageId },
       });
       if (!message) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Message not found' });
       }
 
-      return ctx.prisma.chatMessage.update({
+      return ctx.prisma.chatMessageV2.update({
         where: { id: input.messageId },
         data: { is_pinned: true, pinned_by: userId, pinned_at: new Date() },
         include: {
-          user: { select: { id: true, name: true, avatar_url: true } },
-          _count: { select: { replies: true } },
+          channel: { select: { id: true, name: true } },
         },
       });
     }),
@@ -128,19 +126,18 @@ export const messagesV2Router = createTRPCRouter({
   unpin: protectedProcedure
     .input(z.object({ messageId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const message = await ctx.prisma.chatMessage.findUnique({
+      const message = await ctx.prisma.chatMessageV2.findUnique({
         where: { id: input.messageId },
       });
       if (!message) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Message not found' });
       }
 
-      return ctx.prisma.chatMessage.update({
+      return ctx.prisma.chatMessageV2.update({
         where: { id: input.messageId },
         data: { is_pinned: false, pinned_by: null, pinned_at: null },
         include: {
-          user: { select: { id: true, name: true, avatar_url: true } },
-          _count: { select: { replies: true } },
+          channel: { select: { id: true, name: true } },
         },
       });
     }),
@@ -163,14 +160,14 @@ export const messagesV2Router = createTRPCRouter({
   pinned: protectedProcedure
     .input(z.object({ channelId: z.string() }))
     .query(async ({ ctx, input }) => {
-      return ctx.prisma.chatMessage.findMany({
+      return ctx.prisma.chatMessageV2.findMany({
         where: {
           channel_id: input.channelId,
           is_pinned: true,
-          is_deleted: false,
+          deleted_at: null,
         },
         include: {
-          user: { select: { id: true, name: true, avatar_url: true } },
+          channel: { select: { id: true, name: true } },
         },
         orderBy: { pinned_at: 'desc' },
       });

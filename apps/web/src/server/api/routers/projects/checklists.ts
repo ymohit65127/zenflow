@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -9,17 +8,15 @@ export const checklistsRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
       const task = await ctx.prisma.task.findFirst({
-        where: { id: input.taskId, project: { organization_id: orgId }, deleted_at: null },
+        where: { id: input.taskId, organization_id: orgId, deleted_at: null },
       });
       if (!task) throw new TRPCError({ code: 'NOT_FOUND', message: 'Task not found' });
 
       return ctx.prisma.taskChecklist.findMany({
-        where: { task_id: input.taskId },
+        where: { task_id: input.taskId, deleted_at: null },
         include: {
           items: {
-            include: {
-              done_by_user: { select: { id: true, name: true, avatar_url: true } },
-            },
+            where: { deleted_at: null },
             orderBy: { position: 'asc' },
           },
         },
@@ -37,7 +34,7 @@ export const checklistsRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
       const task = await ctx.prisma.task.findFirst({
-        where: { id: input.taskId, project: { organization_id: orgId }, deleted_at: null },
+        where: { id: input.taskId, organization_id: orgId, deleted_at: null },
       });
       if (!task) throw new TRPCError({ code: 'NOT_FOUND', message: 'Task not found' });
 
@@ -50,7 +47,8 @@ export const checklistsRouter = createTRPCRouter({
       return ctx.prisma.taskChecklist.create({
         data: {
           task_id: input.taskId,
-          title: input.title,
+          organization_id: orgId,
+          name: input.title,
           position: (lastChecklist?.position ?? 0) + 1,
         },
         include: { items: true },
@@ -62,7 +60,7 @@ export const checklistsRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
       const checklist = await ctx.prisma.taskChecklist.findFirst({
-        where: { id: input.checklistId, task: { project: { organization_id: orgId } } },
+        where: { id: input.checklistId, organization_id: orgId },
       });
       if (!checklist) throw new TRPCError({ code: 'NOT_FOUND', message: 'Checklist not found' });
 
@@ -81,7 +79,7 @@ export const checklistsRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
       const checklist = await ctx.prisma.taskChecklist.findFirst({
-        where: { id: input.checklistId, task: { project: { organization_id: orgId } } },
+        where: { id: input.checklistId, organization_id: orgId },
       });
       if (!checklist) throw new TRPCError({ code: 'NOT_FOUND', message: 'Checklist not found' });
 
@@ -98,7 +96,8 @@ export const checklistsRouter = createTRPCRouter({
       return ctx.prisma.taskChecklistItem.create({
         data: {
           checklist_id: input.checklistId,
-          text: input.text,
+          organization_id: orgId,
+          title: input.text,
           position,
         },
       });
@@ -119,26 +118,26 @@ export const checklistsRouter = createTRPCRouter({
       const item = await ctx.prisma.taskChecklistItem.findFirst({
         where: {
           id: input.itemId,
-          checklist: { task: { project: { organization_id: orgId } } },
+          organization_id: orgId,
         },
       });
       if (!item) throw new TRPCError({ code: 'NOT_FOUND', message: 'Checklist item not found' });
 
-      const doneAt =
-        input.isDone === true && !item.is_done
+      const checkedAt =
+        input.isDone === true && !item.is_checked
           ? new Date()
-          : input.isDone === false && item.is_done
+          : input.isDone === false && item.is_checked
           ? null
           : undefined;
 
       return ctx.prisma.taskChecklistItem.update({
         where: { id: input.itemId },
         data: {
-          ...(input.text !== undefined ? { text: input.text } : {}),
-          ...(input.isDone !== undefined ? { is_done: input.isDone } : {}),
-          ...(doneAt !== undefined ? { done_at: doneAt } : {}),
-          ...(input.isDone === true ? { done_by: userId } : {}),
-          ...(input.isDone === false ? { done_by: null } : {}),
+          ...(input.text !== undefined ? { title: input.text } : {}),
+          ...(input.isDone !== undefined ? { is_checked: input.isDone } : {}),
+          ...(checkedAt !== undefined ? { checked_at: checkedAt } : {}),
+          ...(input.isDone === true ? { checked_by: userId } : {}),
+          ...(input.isDone === false ? { checked_by: null } : {}),
         },
       });
     }),
@@ -150,7 +149,7 @@ export const checklistsRouter = createTRPCRouter({
       const item = await ctx.prisma.taskChecklistItem.findFirst({
         where: {
           id: input.itemId,
-          checklist: { task: { project: { organization_id: orgId } } },
+          organization_id: orgId,
         },
       });
       if (!item) throw new TRPCError({ code: 'NOT_FOUND', message: 'Checklist item not found' });
@@ -168,7 +167,7 @@ export const checklistsRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
       const checklist = await ctx.prisma.taskChecklist.findFirst({
-        where: { id: input.checklistId, task: { project: { organization_id: orgId } } },
+        where: { id: input.checklistId, organization_id: orgId },
       });
       if (!checklist) throw new TRPCError({ code: 'NOT_FOUND', message: 'Checklist not found' });
 

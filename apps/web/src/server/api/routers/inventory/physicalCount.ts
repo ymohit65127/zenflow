@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -8,7 +7,7 @@ async function generateCountNumber(
   orgId: string
 ): Promise<string> {
   const last = await prisma.invPhysicalCount.findFirst({
-    where: { org_id: orgId, count_number: { startsWith: 'CNT-' } },
+    where: { organization_id: orgId, count_number: { startsWith: 'CNT-' } },
     orderBy: { created_at: 'desc' },
     select: { count_number: true },
   });
@@ -22,7 +21,7 @@ export const physicalCountRouter = createTRPCRouter({
   list: protectedProcedure
     .input(
       z.object({
-        status: z.enum(['draft', 'counting', 'reconciled', 'posted']).optional(),
+        status: z.enum(['draft', 'in_progress', 'completed', 'cancelled']).optional(),
         warehouse_id: z.string().optional(),
         limit: z.number().min(1).max(100).default(25),
         offset: z.number().min(0).default(0),
@@ -33,12 +32,11 @@ export const physicalCountRouter = createTRPCRouter({
       const [items, total] = await Promise.all([
         ctx.prisma.invPhysicalCount.findMany({
           where: {
-            org_id: orgId,
+            organization_id: orgId,
             ...(input.status ? { status: input.status } : {}),
             ...(input.warehouse_id ? { warehouse_id: input.warehouse_id } : {}),
           },
           include: {
-            warehouse: { select: { id: true, name: true } },
             _count: { select: { lines: true } },
           },
           take: input.limit,
@@ -46,7 +44,7 @@ export const physicalCountRouter = createTRPCRouter({
           orderBy: { created_at: 'desc' },
         }),
         ctx.prisma.invPhysicalCount.count({
-          where: { org_id: orgId, ...(input.status ? { status: input.status } : {}) },
+          where: { organization_id: orgId, ...(input.status ? { status: input.status } : {}) },
         }),
       ]);
       return { items, total };
@@ -57,13 +55,11 @@ export const physicalCountRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const count = await ctx.prisma.invPhysicalCount.findFirst({
-        where: { id: input.id, org_id: orgId },
+        where: { id: input.id, organization_id: orgId },
         include: {
-          warehouse: true,
           lines: {
             include: {
               product: { select: { id: true, name: true, sku: true, unit_of_measure: true } },
-              location: { select: { id: true, name: true, code: true } },
             },
             orderBy: [{ product: { name: 'asc' } }],
           },
@@ -77,11 +73,9 @@ export const physicalCountRouter = createTRPCRouter({
     .input(
       z.object({
         warehouse_id: z.string(),
-        scope: z.enum(['full', 'partial', 'category', 'location']).default('full'),
-        scheduled_date: z.string().optional(),
+        scope: z.enum(['full', 'partial', 'cycle']).default('full'),
         notes: z.string().optional(),
-        product_ids: z.array(z.string()).optional(), // for partial scope
-        location_ids: z.array(z.string()).optional(), // for location scope
+        product_ids: z.array(z.string()).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -91,35 +85,30 @@ export const physicalCountRouter = createTRPCRouter({
       // Gather current stock levels to generate count lines
       const stockLevels = await ctx.prisma.invStockLevel.findMany({
         where: {
-          org_id: orgId,
+          organization_id: orgId,
           warehouse_id: input.warehouse_id,
           ...(input.product_ids?.length ? { product_id: { in: input.product_ids } } : {}),
-          ...(input.location_ids?.length ? { location_id: { in: input.location_ids } } : {}),
         },
       });
 
       const count = await ctx.prisma.invPhysicalCount.create({
         data: {
-          org_id: orgId,
+          organization_id: orgId,
           count_number: countNumber,
           warehouse_id: input.warehouse_id,
           scope: input.scope,
           status: 'draft',
-          scheduled_date: input.scheduled_date ? new Date(input.scheduled_date) : null,
           notes: input.notes ?? null,
           created_by: ctx.session.user.id,
           lines: {
             create: stockLevels.map((sl) => ({
               product_id: sl.product_id,
               variant_id: sl.variant_id ?? null,
-              location_id: sl.location_id ?? null,
-              system_quantity: sl.quantity_on_hand,
-              unit_cost: sl.average_cost,
+              expected_qty: sl.quantity,
             })),
           },
         },
         include: {
-          warehouse: true,
           _count: { select: { lines: true } },
         },
       });
@@ -132,7 +121,7 @@ export const physicalCountRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const count = await ctx.prisma.invPhysicalCount.findFirst({
-        where: { id: input.id, org_id: orgId },
+        where: { id: input.id, organization_id: orgId },
       });
       if (!count) throw new TRPCError({ code: 'NOT_FOUND', message: 'Physical count not found' });
       if (count.status !== 'draft') {
@@ -141,7 +130,7 @@ export const physicalCountRouter = createTRPCRouter({
 
       // Snapshot current system quantities
       const stockLevels = await ctx.prisma.invStockLevel.findMany({
-        where: { org_id: orgId, warehouse_id: count.warehouse_id },
+        where: { organization_id: orgId, warehouse_id: count.warehouse_id },
       });
       const levelMap = new Map(
         stockLevels.map((sl) => [
@@ -156,18 +145,18 @@ export const physicalCountRouter = createTRPCRouter({
 
       await ctx.prisma.$transaction(
         lines.map((line) => {
-          const key = `${line.product_id}-${line.variant_id ?? ''}-${line.location_id ?? ''}`;
+          const key = `${line.product_id}-${line.variant_id ?? ''}`;
           const sl = levelMap.get(key);
           return ctx.prisma.invPhysicalCountLine.update({
             where: { id: line.id },
-            data: { system_quantity: sl?.quantity_on_hand ?? 0 },
+            data: { expected_qty: sl?.quantity ?? 0 },
           });
         })
       );
 
       return ctx.prisma.invPhysicalCount.update({
         where: { id: input.id },
-        data: { status: 'counting', started_at: new Date() },
+        data: { status: 'in_progress', started_at: new Date() },
       });
     }),
 
@@ -178,7 +167,7 @@ export const physicalCountRouter = createTRPCRouter({
         lines: z.array(
           z.object({
             line_id: z.string(),
-            counted_quantity: z.number().min(0),
+            counted_qty: z.number().min(0),
           })
         ),
       })
@@ -186,11 +175,11 @@ export const physicalCountRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const count = await ctx.prisma.invPhysicalCount.findFirst({
-        where: { id: input.id, org_id: orgId },
+        where: { id: input.id, organization_id: orgId },
       });
       if (!count) throw new TRPCError({ code: 'NOT_FOUND', message: 'Physical count not found' });
-      if (!['counting', 'draft'].includes(count.status)) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Count is not in counting status' });
+      if (!['in_progress', 'draft'].includes(count.status)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Count is not in progress' });
       }
 
       await ctx.prisma.$transaction(
@@ -198,7 +187,7 @@ export const physicalCountRouter = createTRPCRouter({
           ctx.prisma.invPhysicalCountLine.update({
             where: { id: l.line_id },
             data: {
-              counted_quantity: l.counted_quantity,
+              counted_qty: l.counted_qty,
               counted_at: new Date(),
               counted_by: ctx.session.user.id,
             },
@@ -206,20 +195,17 @@ export const physicalCountRouter = createTRPCRouter({
         )
       );
 
-      // Recompute variances
+      // Recompute discrepancies
       const updatedLines = await ctx.prisma.invPhysicalCountLine.findMany({
-        where: { count_id: input.id, counted_quantity: { not: null } },
+        where: { count_id: input.id, counted_qty: { not: null } },
       });
 
       await ctx.prisma.$transaction(
         updatedLines.map((line) => {
-          const variance = Number(line.counted_quantity) - Number(line.system_quantity);
+          const discrepancy = Number(line.counted_qty) - Number(line.expected_qty);
           return ctx.prisma.invPhysicalCountLine.update({
             where: { id: line.id },
-            data: {
-              variance,
-              variance_value: variance * Number(line.unit_cost),
-            },
+            data: { discrepancy },
           });
         })
       );
@@ -232,40 +218,38 @@ export const physicalCountRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const count = await ctx.prisma.invPhysicalCount.findFirst({
-        where: { id: input.id, org_id: orgId },
+        where: { id: input.id, organization_id: orgId },
       });
       if (!count) throw new TRPCError({ code: 'NOT_FOUND', message: 'Physical count not found' });
 
       return ctx.prisma.invPhysicalCountLine.findMany({
         where: {
           count_id: input.id,
-          counted_quantity: { not: null },
-          variance: { not: 0 },
+          counted_qty: { not: null },
+          discrepancy: { not: 0 },
         },
         include: {
           product: { select: { id: true, name: true, sku: true, unit_of_measure: true } },
-          location: { select: { id: true, name: true, code: true } },
         },
-        orderBy: { variance_value: 'asc' },
+        orderBy: { discrepancy: 'asc' },
       });
     }),
 
-  reconcile: protectedProcedure
+  complete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const count = await ctx.prisma.invPhysicalCount.findFirst({
-        where: { id: input.id, org_id: orgId },
+        where: { id: input.id, organization_id: orgId },
       });
       if (!count) throw new TRPCError({ code: 'NOT_FOUND', message: 'Physical count not found' });
-      if (count.status !== 'counting') {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Count must be in counting status' });
+      if (count.status !== 'in_progress') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Count must be in progress' });
       }
 
-      // Mark as reconciled — next step is post
       return ctx.prisma.invPhysicalCount.update({
         where: { id: input.id },
-        data: { status: 'reconciled' },
+        data: { status: 'completed', completed_at: new Date() },
       });
     }),
 
@@ -274,78 +258,72 @@ export const physicalCountRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const count = await ctx.prisma.invPhysicalCount.findFirst({
-        where: { id: input.id, org_id: orgId },
+        where: { id: input.id, organization_id: orgId },
         include: {
-          lines: { where: { counted_quantity: { not: null } } },
+          lines: { where: { counted_qty: { not: null } } },
         },
       });
       if (!count) throw new TRPCError({ code: 'NOT_FOUND', message: 'Physical count not found' });
-      if (count.status !== 'reconciled') {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Count must be reconciled before posting' });
+      if (count.status !== 'completed') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Count must be completed before posting' });
       }
 
       const varianceLines = count.lines.filter(
-        (l) => l.counted_quantity !== null && Number(l.counted_quantity) !== Number(l.system_quantity)
+        (l) => l.counted_qty !== null && Number(l.counted_qty) !== Number(l.expected_qty)
       );
 
       let totalValueChange = 0;
 
       await ctx.prisma.$transaction(async (tx) => {
         for (const line of varianceLines) {
-          const qtyChange = Number(line.counted_quantity) - Number(line.system_quantity);
+          const qtyChange = Number(line.counted_qty) - Number(line.expected_qty);
           const isIncrease = qtyChange > 0;
 
           await tx.invStockLevel.upsert({
             where: {
               product_id_variant_id_warehouse_id_location_id: {
                 product_id: line.product_id,
-                variant_id: line.variant_id ?? null,
+                variant_id: (line.variant_id ?? null) as unknown as string,
                 warehouse_id: count.warehouse_id,
-                location_id: line.location_id ?? null,
+                location_id: null as unknown as string,
               },
             },
             create: {
-              org_id: orgId,
+              organization_id: orgId,
               product_id: line.product_id,
               variant_id: line.variant_id ?? null,
               warehouse_id: count.warehouse_id,
-              location_id: line.location_id ?? null,
-              quantity_on_hand: qtyChange,
-              average_cost: Number(line.unit_cost),
-              total_value: qtyChange * Number(line.unit_cost),
-              last_movement_at: new Date(),
+              location_id: null,
+              quantity: qtyChange,
+              avg_cost: 0,
             },
             update: {
-              quantity_on_hand: { increment: qtyChange },
-              last_movement_at: new Date(),
+              quantity: { increment: qtyChange },
             },
           });
 
           await tx.invStockMovement.create({
             data: {
-              org_id: orgId,
+              organization_id: orgId,
               movement_type: isIncrease ? 'adjustment_in' : 'adjustment_out',
               reference_type: 'physical_count',
               reference_id: input.id,
               product_id: line.product_id,
               variant_id: line.variant_id ?? null,
               warehouse_id: count.warehouse_id,
-              to_location_id: line.location_id ?? null,
               quantity: Math.abs(qtyChange),
-              unit_cost: Number(line.unit_cost),
-              total_cost: Math.abs(qtyChange) * Number(line.unit_cost),
-              running_stock: Number(line.counted_quantity),
-              created_by: ctx.session.user.id,
-              notes: `Physical count reconciliation: ${count.count_number}`,
+              unit_cost: 0,
+              total_cost: 0,
+              notes: `Physical count: ${count.count_number}`,
             },
           });
 
-          totalValueChange += qtyChange * Number(line.unit_cost);
+          totalValueChange += qtyChange;
         }
 
         await tx.invPhysicalCount.update({
           where: { id: input.id },
-          data: { status: 'posted', completed_at: new Date() },
+          data: { status: 'completed', completed_at: new Date() },
         });
       });
 

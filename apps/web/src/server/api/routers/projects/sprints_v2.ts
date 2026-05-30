@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -32,31 +31,39 @@ export const sprintsV2Router = createTRPCRouter({
       const sprints = await ctx.prisma.sprint.findMany({
         where: {
           project_id: input.projectId,
-          status: 'completed',
+          status: 'COMPLETED',
         },
         orderBy: { end_date: 'desc' },
         take: input.lastNSprints,
-        include: {
-          _count: { select: { tasks: true } },
-        },
       });
+
+      // Load task counts separately
+      const sprintIds = sprints.map((s) => s.id);
+      const taskCounts = await ctx.prisma.task.groupBy({
+        by: ['sprint_id'],
+        where: { sprint_id: { in: sprintIds } },
+        _count: { id: true },
+      });
+      const countBySprintId = Object.fromEntries(
+        taskCounts.map((tc) => [tc.sprint_id, tc._count.id])
+      );
 
       const sprintsAsc = [...sprints].reverse();
 
-      // Rolling 3-sprint average
+      // Rolling 3-sprint average using velocity field
       const withRolling = sprintsAsc.map((s, i) => {
         const window = sprintsAsc.slice(Math.max(0, i - 2), i + 1);
         const rollingAvg =
-          window.reduce((sum, w) => sum + (w.velocity_actual ?? 0), 0) / window.length;
+          window.reduce((sum, w) => sum + (w.velocity ?? 0), 0) / window.length;
         return {
           id: s.id,
           name: s.name,
           startDate: s.start_date,
           endDate: s.end_date,
-          velocityActual: s.velocity_actual ?? 0,
-          velocityTarget: s.velocity_target ?? 0,
-          completedPoints: s.completed_points,
-          taskCount: s._count.tasks,
+          velocityActual: s.velocity ?? 0,
+          velocityTarget: s.velocity ?? 0,
+          completedPoints: 0,
+          taskCount: countBySprintId[s.id] ?? 0,
           rollingAvg: Math.round(rollingAvg),
         };
       });
@@ -69,33 +76,35 @@ export const sprintsV2Router = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
       const sprint = await ctx.prisma.sprint.findFirst({
-        where: { id: input.sprintId, project: { organization_id: orgId } },
-        include: {
-          tasks: {
-            where: { deleted_at: null },
-            select: {
-              id: true,
-              estimate_points: true,
-              estimate_hours: true,
-              completed_at: true,
-              created_at: true,
-            },
-          },
+        where: {
+          id: input.sprintId,
+          project: { organization_id: orgId },
         },
       });
       if (!sprint) throw new TRPCError({ code: 'NOT_FOUND', message: 'Sprint not found' });
 
-      const totalPoints = sprint.tasks.reduce(
-        (sum, t) => sum + (t.estimate_points ?? 0),
+      const tasks = await ctx.prisma.task.findMany({
+        where: { sprint_id: input.sprintId, deleted_at: null },
+        select: {
+          id: true,
+          story_points: true,
+          estimated_hours: true,
+          completed_at: true,
+          created_at: true,
+        },
+      });
+
+      const totalPoints = tasks.reduce(
+        (sum, t) => sum + (t.story_points ?? 0),
         0
       );
-      const totalHours = sprint.tasks.reduce(
-        (sum, t) => sum + Number(t.estimate_hours ?? 0),
+      const totalHours = tasks.reduce(
+        (sum, t) => sum + Number(t.estimated_hours ?? 0),
         0
       );
 
-      const sprintStart = sprint.start_date;
-      const sprintEnd = sprint.end_date;
+      const sprintStart = sprint.start_date ?? new Date();
+      const sprintEnd = sprint.end_date ?? new Date();
       const today = new Date();
       const chartEnd = today < sprintEnd ? today : sprintEnd;
 
@@ -109,7 +118,7 @@ export const sprintsV2Router = createTRPCRouter({
       let dayIndex = 0;
       const d = new Date(sprintStart);
       while (d <= chartEnd) {
-        const dayStr = d.toISOString().split('T')[0];
+        const dayStr = d.toISOString().split('T')[0] as string;
         const dayOfWeek = d.getDay();
         if (dayOfWeek !== 0 && dayOfWeek !== 6) {
           // Ideal: linear decrease
@@ -121,9 +130,9 @@ export const sprintsV2Router = createTRPCRouter({
           // Actual: remaining points as of end of this day
           const endOfDay = new Date(d);
           endOfDay.setHours(23, 59, 59, 999);
-          const remaining = sprint.tasks
+          const remaining = tasks
             .filter((t) => !t.completed_at || t.completed_at > endOfDay)
-            .reduce((sum, t) => sum + (t.estimate_points ?? 0), 0);
+            .reduce((sum, t) => sum + (t.story_points ?? 0), 0);
 
           actualLine.push({ date: dayStr, points: remaining });
           dayIndex++;
@@ -133,11 +142,11 @@ export const sprintsV2Router = createTRPCRouter({
       }
 
       // Scope changes: tasks added after sprint started
-      const scopeChanges = sprint.tasks
+      const scopeChanges = tasks
         .filter((t) => t.created_at > sprintStart)
         .reduce<Record<string, number>>((acc, t) => {
-          const dateKey = t.created_at.toISOString().split('T')[0];
-          acc[dateKey] = (acc[dateKey] ?? 0) + (t.estimate_points ?? 0);
+          const dateKey = t.created_at.toISOString().split('T')[0] as string;
+          acc[dateKey] = (acc[dateKey] ?? 0) + (t.story_points ?? 0);
           return acc;
         }, {});
 
@@ -147,7 +156,7 @@ export const sprintsV2Router = createTRPCRouter({
         endDate: sprintEnd,
         totalPoints,
         totalHours,
-        completedPoints: sprint.completed_points,
+        completedPoints: 0,
         idealLine,
         actualLine,
         scopeChanges: Object.entries(scopeChanges).map(([date, points]) => ({
@@ -162,19 +171,21 @@ export const sprintsV2Router = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
       const sprint = await ctx.prisma.sprint.findFirst({
-        where: { id: input.sprintId, project: { organization_id: orgId } },
-        include: {
-          tasks: {
-            where: { deleted_at: null },
-            include: {
-              assignees: {
-                include: { user: { select: { id: true, name: true, avatar_url: true } } },
-              },
-            },
-          },
+        where: {
+          id: input.sprintId,
+          project: { organization_id: orgId },
         },
       });
       if (!sprint) throw new TRPCError({ code: 'NOT_FOUND', message: 'Sprint not found' });
+
+      const tasks = await ctx.prisma.task.findMany({
+        where: { sprint_id: input.sprintId, deleted_at: null },
+        include: {
+          assignments: {
+            include: { user: { select: { id: true, name: true, avatar_url: true } } },
+          },
+        },
+      });
 
       // Group by assignee
       const byUser = new Map<
@@ -187,15 +198,15 @@ export const sprintsV2Router = createTRPCRouter({
         }
       >();
 
-      for (const task of sprint.tasks) {
-        for (const a of task.assignees) {
+      for (const task of tasks) {
+        for (const a of task.assignments) {
           const existing = byUser.get(a.user_id) ?? {
-            user: a.user,
+            user: { id: a.user.id, name: a.user.name, avatar_url: (a.user as { avatar_url?: string | null }).avatar_url ?? null },
             estimatedHours: 0,
             completedHours: 0,
             taskCount: 0,
           };
-          existing.estimatedHours += Number(task.estimate_hours ?? 0);
+          existing.estimatedHours += Number(task.estimated_hours ?? 0);
           existing.completedHours += task.completed_at ? Number(task.actual_hours ?? 0) : 0;
           existing.taskCount += 1;
           byUser.set(a.user_id, existing);
@@ -204,8 +215,8 @@ export const sprintsV2Router = createTRPCRouter({
 
       return {
         sprintName: sprint.name,
-        capacityHours: sprint.capacity_hours ? Number(sprint.capacity_hours) : null,
-        velocityTarget: sprint.velocity_target ?? null,
+        capacityHours: null as number | null,
+        velocityTarget: sprint.velocity ?? null,
         members: Array.from(byUser.values()),
       };
     }),

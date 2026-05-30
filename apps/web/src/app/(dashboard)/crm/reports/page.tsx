@@ -71,7 +71,7 @@ export default function ReportsPage() {
   );
 
   const { data: winLoss } = api.crm.reports.getWinLossAnalysis.useQuery(
-    { dateFrom, dateTo, groupBy: "owner" },
+    { dateFrom, dateTo, groupBy: "assignee" },
     { enabled: true }
   );
 
@@ -265,7 +265,7 @@ export default function ReportsPage() {
                         <span className="truncate flex-1 mr-4">{deal.name}</span>
                         <Badge variant="outline" className="text-xs mr-3">{deal.stageName}</Badge>
                         <span className="text-xs text-muted-foreground mr-3">{deal.probability}%</span>
-                        <span className="font-semibold">{formatCurrency(deal.amount)}</span>
+                        <span className="font-semibold">{formatCurrency(deal.value)}</span>
                       </div>
                     ))}
                   </div>

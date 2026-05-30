@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { api } from "@/trpc/react";
 import { Badge } from "@/components/ui/badge";
@@ -170,12 +168,12 @@ export default function EmailIntegrationPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="font-medium text-sm">{integration.email_address}</p>
-                      <Badge className={`text-xs ${providerConfig.color}`}>
-                        {providerConfig.label}
+                      <Badge className={`text-xs ${providerConfig?.color}`}>
+                        {providerConfig?.label}
                       </Badge>
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      {integration.sync_enabled ? (
+                      {integration.last_synced_at ? (
                         <span className="flex items-center gap-1 text-xs text-green-600">
                           <CheckCircle className="w-3 h-3" /> Sync enabled
                         </span>

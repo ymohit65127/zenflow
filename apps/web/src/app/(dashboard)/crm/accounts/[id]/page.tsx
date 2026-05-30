@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { use } from "react";
 import Link from "next/link";
@@ -13,13 +11,11 @@ import {
   Building2,
   Globe,
   Phone,
-  Users,
   TrendingUp,
-  FileText,
   ArrowLeft,
   Mail,
   ExternalLink,
-  Linkedin,
+  Users,
 } from "lucide-react";
 
 function safeLinkHref(url: string | null | undefined): string | undefined {
@@ -73,7 +69,7 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
               <h1 className="text-2xl font-bold">{account.name}</h1>
               <div className="flex items-center gap-3 mt-1">
                 {account.industry && <Badge variant="outline">{account.industry}</Badge>}
-                {account.size && <Badge variant="secondary">{account.size.replace("SIZE_", "").replace(/_/g, " ")} employees</Badge>}
+                {account.company_size && <Badge variant="secondary">{String(account.company_size).replace("SIZE_", "").replace(/_/g, " ")} employees</Badge>}
               </div>
             </div>
           </div>
@@ -83,11 +79,11 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-          {account.domain && (
+          {account.website && (
             <div className="flex items-center gap-2 text-sm">
               <Globe className="w-4 h-4 text-muted-foreground" />
-              <a href={`https://${account.domain}`} target="_blank" className="text-brand-500 hover:underline flex items-center gap-1">
-                {account.domain} <ExternalLink className="w-3 h-3" />
+              <a href={safeLinkHref(account.website)} target="_blank" className="text-brand-500 hover:underline flex items-center gap-1">
+                {account.website} <ExternalLink className="w-3 h-3" />
               </a>
             </div>
           )}
@@ -103,10 +99,10 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
               <span>ARR: {formatCurrency(Number(account.annual_revenue))}</span>
             </div>
           )}
-          {account.linkedin_url && (
+          {account.email && (
             <div className="flex items-center gap-2 text-sm">
-              <Linkedin className="w-4 h-4 text-muted-foreground" />
-              <a href={safeLinkHref(account.linkedin_url)} target="_blank" rel="noopener noreferrer" className="text-brand-500 hover:underline">LinkedIn</a>
+              <Mail className="w-4 h-4 text-muted-foreground" />
+              <a href={`mailto:${account.email}`} className="text-brand-500 hover:underline">{account.email}</a>
             </div>
           )}
         </div>
@@ -119,7 +115,7 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
             <div className="flex items-center gap-2">
               <Users className="w-5 h-5 text-brand-500" />
               <div>
-                <p className="text-2xl font-bold">{account.contacts?.length ?? 0}</p>
+                <p className="text-2xl font-bold">—</p>
                 <p className="text-xs text-muted-foreground">Contacts</p>
               </div>
             </div>
@@ -130,7 +126,7 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
             <div className="flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-violet-500" />
               <div>
-                <p className="text-2xl font-bold">{account.deals?.length ?? 0}</p>
+                <p className="text-2xl font-bold">—</p>
                 <p className="text-xs text-muted-foreground">Deals</p>
               </div>
             </div>
@@ -141,9 +137,7 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
             <div className="flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-green-500" />
               <div>
-                <p className="text-2xl font-bold">
-                  {formatCurrency(account.deals?.reduce((sum, d) => sum + Number(d.amount ?? 0), 0))}
-                </p>
+                <p className="text-2xl font-bold">—</p>
                 <p className="text-xs text-muted-foreground">Deal Value</p>
               </div>
             </div>
@@ -152,140 +146,57 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="contacts">
+      <Tabs defaultValue="details">
         <TabsList>
-          <TabsTrigger value="contacts">
-            Contacts ({account.contacts?.length ?? 0})
-          </TabsTrigger>
-          <TabsTrigger value="deals">
-            Deals ({account.deals?.length ?? 0})
-          </TabsTrigger>
-          <TabsTrigger value="notes">Notes</TabsTrigger>
+          <TabsTrigger value="details">Details</TabsTrigger>
           <TabsTrigger value="hierarchy">Hierarchy</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="contacts" className="mt-4">
-          <div className="bg-card border border-border rounded-xl overflow-hidden">
-            {account.contacts && account.contacts.length > 0 ? (
-              <div className="divide-y divide-border">
-                {account.contacts.map((contact) => (
-                  <div key={contact.id} className="flex items-center justify-between p-4 hover:bg-muted/30">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-full bg-brand-500/10 flex items-center justify-center text-sm font-semibold text-brand-500">
-                        {contact.first_name[0]}{contact.last_name?.[0] ?? ""}
-                      </div>
-                      <div>
-                        <p className="font-medium text-sm">
-                          {contact.first_name} {contact.last_name ?? ""}
-                        </p>
-                        {contact.job_title && (
-                          <p className="text-xs text-muted-foreground">{contact.job_title}</p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <a href={`mailto:${contact.email}`} className="text-muted-foreground hover:text-foreground">
-                        <Mail className="w-4 h-4" />
-                      </a>
-                      <Badge variant="outline" className="text-xs capitalize">
-                        {contact.lifecycle_stage}
-                      </Badge>
-                      <Link href={`/crm/contacts/${contact.id}`} className="text-brand-500 text-xs hover:underline">
-                        View
-                      </Link>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-8 text-center text-muted-foreground">
-                <Users className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                <p className="text-sm">No contacts yet</p>
+        <TabsContent value="details" className="mt-4">
+          <div className="bg-card border border-border rounded-xl p-6 space-y-3 text-sm">
+            {account.description && (
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Description</p>
+                <p className="text-muted-foreground whitespace-pre-wrap">{account.description}</p>
               </div>
             )}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="deals" className="mt-4">
-          <div className="bg-card border border-border rounded-xl overflow-hidden">
-            {account.deals && account.deals.length > 0 ? (
-              <div className="divide-y divide-border">
-                {account.deals.map((deal) => (
-                  <div key={deal.id} className="flex items-center justify-between p-4 hover:bg-muted/30">
-                    <div>
-                      <p className="font-medium text-sm">{deal.name}</p>
-                      {deal.stage && (
-                        <span
-                          className="text-xs px-2 py-0.5 rounded-full"
-                          style={{ backgroundColor: `${deal.stage.color}20`, color: deal.stage.color }}
-                        >
-                          {deal.stage.name}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3">
-                      {deal.amount && (
-                        <span className="font-semibold text-sm">{formatCurrency(Number(deal.amount))}</span>
-                      )}
-                      <Link href={`/crm/deals/${deal.id}`} className="text-brand-500 text-xs hover:underline">
-                        View
-                      </Link>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-8 text-center text-muted-foreground">
-                <TrendingUp className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                <p className="text-sm">No deals yet</p>
+            {account.tags && account.tags.length > 0 && (
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Tags</p>
+                <div className="flex flex-wrap gap-1">
+                  {account.tags.map((tag) => (
+                    <Badge key={tag} variant="outline" className="text-xs">{tag}</Badge>
+                  ))}
+                </div>
               </div>
             )}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="notes" className="mt-4">
-          <div className="bg-card border border-border rounded-xl overflow-hidden">
-            {account.notes && account.notes.length > 0 ? (
-              <div className="divide-y divide-border">
-                {account.notes.map((note) => (
-                  <div key={note.id} className="p-4">
-                    <p className="text-sm whitespace-pre-wrap">{note.content}</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {new Date(note.created_at).toLocaleDateString()}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-8 text-center text-muted-foreground">
-                <FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                <p className="text-sm">No notes yet</p>
-              </div>
+            {!account.description && (!account.tags || account.tags.length === 0) && (
+              <p className="text-muted-foreground">No additional details</p>
             )}
           </div>
         </TabsContent>
 
         <TabsContent value="hierarchy" className="mt-4">
           <div className="bg-card border border-border rounded-xl p-6">
-            {account.parent_account && (
+            {account.parent && (
               <div className="mb-4">
                 <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Parent Account</p>
                 <Link
-                  href={`/crm/accounts/${account.parent_account.id}`}
+                  href={`/crm/accounts/${account.parent.id}`}
                   className="flex items-center gap-2 text-brand-500 hover:underline"
                 >
                   <Building2 className="w-4 h-4" />
-                  {account.parent_account.name}
+                  {account.parent.name}
                 </Link>
               </div>
             )}
-            {account.child_accounts && account.child_accounts.length > 0 && (
+            {account.children && account.children.length > 0 && (
               <div>
                 <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2">
-                  Child Accounts ({account.child_accounts.length})
+                  Child Accounts ({account.children.length})
                 </p>
                 <div className="space-y-2">
-                  {account.child_accounts.map((child) => (
+                  {account.children.map((child) => (
                     <Link
                       key={child.id}
                       href={`/crm/accounts/${child.id}`}
@@ -293,13 +204,12 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
                     >
                       <Building2 className="w-4 h-4" />
                       {child.name}
-                      {child.domain && <span className="text-muted-foreground text-xs">({child.domain})</span>}
                     </Link>
                   ))}
                 </div>
               </div>
             )}
-            {!account.parent_account && (!account.child_accounts || account.child_accounts.length === 0) && (
+            {!account.parent && (!account.children || account.children.length === 0) && (
               <p className="text-sm text-muted-foreground">No hierarchy relationships</p>
             )}
           </div>

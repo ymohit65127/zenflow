@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { useState } from "react";
 import Link from "next/link";
@@ -27,8 +25,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import {
   FileText,
   Plus,
-  DollarSign,
-  Eye,
   MoreHorizontal,
   Send,
 } from "lucide-react";
@@ -143,10 +139,10 @@ export default function QuotesPage() {
   });
 
   const quotes = data?.quotes ?? [];
-  const totalValue = quotes.reduce((sum, q) => sum + Number(q.grand_total ?? 0), 0);
+  const totalValue = quotes.reduce((sum, q) => sum + Number(q.total ?? 0), 0);
   const acceptedValue = quotes
     .filter((q) => q.status === "accepted")
-    .reduce((sum, q) => sum + Number(q.grand_total ?? 0), 0);
+    .reduce((sum, q) => sum + Number(q.total ?? 0), 0);
 
   return (
     <div className="space-y-6">
@@ -203,7 +199,7 @@ export default function QuotesPage() {
         ) : (
           <div className="divide-y divide-border">
             {quotes.map((quote) => {
-              const statusConfig = STATUS_CONFIG[quote.status] ?? STATUS_CONFIG.draft;
+              const statusConfig = STATUS_CONFIG[quote.status] ?? { label: 'Draft', classes: 'bg-slate-100 text-slate-600' };
               return (
                 <div key={quote.id} className="flex items-center gap-4 p-4 hover:bg-muted/30 group">
                   <div className="flex-1 min-w-0">
@@ -219,24 +215,15 @@ export default function QuotesPage() {
                       </span>
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs text-muted-foreground font-mono">{quote.number}</span>
-                      {quote.deal && (
-                        <span className="text-xs text-muted-foreground">· {quote.deal.name}</span>
-                      )}
+                      <span className="text-xs text-muted-foreground font-mono">{quote.quote_number}</span>
                       {quote._count && (
                         <span className="text-xs text-muted-foreground">· {quote._count.lines} lines</span>
                       )}
                     </div>
                   </div>
 
-                  {quote.open_count > 0 && (
-                    <span className="text-xs text-muted-foreground flex items-center gap-1">
-                      <Eye className="w-3 h-3" /> {quote.open_count}
-                    </span>
-                  )}
-
                   <div className="text-right">
-                    <p className="font-semibold">{formatCurrency(Number(quote.grand_total))}</p>
+                    <p className="font-semibold">{formatCurrency(Number(quote.total))}</p>
                     {quote.valid_until && (
                       <p className="text-xs text-muted-foreground">
                         Valid until {new Date(quote.valid_until).toLocaleDateString()}

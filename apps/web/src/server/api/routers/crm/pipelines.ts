@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -6,42 +5,30 @@ import { TRPCError } from '@trpc/server';
 const PipelineCreateSchema = z.object({
   name: z.string().min(1).max(255),
   description: z.string().optional(),
-  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default('#3B82F6'),
-  currency: z.string().length(3).default('USD'),
-  winProbabilityEnabled: z.boolean().default(true),
-  rottingEnabled: z.boolean().default(false),
-  rottingDays: z.number().int().min(1).max(365).default(14),
+  is_default: z.boolean().default(false),
 });
 
-const PipelineUpdateSchema = z.object({
-  name: z.string().min(1).max(255).optional(),
-  description: z.string().optional(),
-  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
-  currency: z.string().length(3).optional(),
-  winProbabilityEnabled: z.boolean().optional(),
-  rottingEnabled: z.boolean().optional(),
-  rottingDays: z.number().int().min(1).max(365).optional(),
-});
+const PipelineUpdateSchema = PipelineCreateSchema.partial();
 
 const DEFAULT_STAGES = [
-  { name: 'Prospecting', color: '#6366f1', probability: 10, position: 0, stage_type: 'active' as const },
-  { name: 'Qualification', color: '#8b5cf6', probability: 25, position: 1, stage_type: 'active' as const },
-  { name: 'Proposal', color: '#06b6d4', probability: 50, position: 2, stage_type: 'active' as const },
-  { name: 'Negotiation', color: '#f59e0b', probability: 75, position: 3, stage_type: 'active' as const },
-  { name: 'Closed Won', color: '#22c55e', probability: 100, position: 4, stage_type: 'won' as const, rottable: false },
-  { name: 'Closed Lost', color: '#ef4444', probability: 0, position: 5, stage_type: 'lost' as const, rottable: false },
+  { name: 'Prospecting', color: '#6366f1', win_probability: 10, sort_order: 0, is_closed: false, is_won: false },
+  { name: 'Qualification', color: '#8b5cf6', win_probability: 25, sort_order: 1, is_closed: false, is_won: false },
+  { name: 'Proposal', color: '#06b6d4', win_probability: 50, sort_order: 2, is_closed: false, is_won: false },
+  { name: 'Negotiation', color: '#f59e0b', win_probability: 75, sort_order: 3, is_closed: false, is_won: false },
+  { name: 'Closed Won', color: '#22c55e', win_probability: 100, sort_order: 4, is_closed: true, is_won: true },
+  { name: 'Closed Lost', color: '#ef4444', win_probability: 0, sort_order: 5, is_closed: true, is_won: false },
 ];
 
 export const crmPipelinesRouter = createTRPCRouter({
   list: protectedProcedure.query(async ({ ctx }) => {
     const orgId = ctx.session.user.organizationId as string;
     return ctx.prisma.crmPipeline.findMany({
-      where: { organization_id: orgId, deleted_at: null },
+      where: { organization_id: orgId },
       include: {
-        stages: { orderBy: { position: 'asc' } },
+        stages: { orderBy: { sort_order: 'asc' } },
         _count: { select: { deals: true } },
       },
-      orderBy: { position: 'asc' },
+      orderBy: { created_at: 'asc' },
     });
   }),
 
@@ -50,8 +37,8 @@ export const crmPipelinesRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const pipeline = await ctx.prisma.crmPipeline.findFirst({
-        where: { id: input.id, organization_id: orgId, deleted_at: null },
-        include: { stages: { orderBy: { position: 'asc' } } },
+        where: { id: input.id, organization_id: orgId },
+        include: { stages: { orderBy: { sort_order: 'asc' } } },
       });
       if (!pipeline) throw new TRPCError({ code: 'NOT_FOUND', message: 'Pipeline not found' });
       return pipeline;
@@ -61,37 +48,25 @@ export const crmPipelinesRouter = createTRPCRouter({
     .input(PipelineCreateSchema)
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
-      const userId = ctx.session.user.id as string;
-
-      const maxPosition = await ctx.prisma.crmPipeline.aggregate({
-        where: { organization_id: orgId, deleted_at: null },
-        _max: { position: true },
-      });
 
       return ctx.prisma.crmPipeline.create({
         data: {
           organization_id: orgId,
-          created_by: userId,
           name: input.name,
           description: input.description ?? null,
-          color: input.color,
-          currency: input.currency,
-          win_probability_enabled: input.winProbabilityEnabled,
-          rotting_enabled: input.rottingEnabled,
-          rotting_days: input.rottingDays,
-          position: (maxPosition._max.position ?? 0) + 1,
+          is_default: input.is_default,
           stages: {
             create: DEFAULT_STAGES.map((s) => ({
               name: s.name,
               color: s.color,
-              probability: s.probability,
-              position: s.position,
-              stage_type: s.stage_type,
-              rottable: s.rottable ?? true,
+              win_probability: s.win_probability,
+              sort_order: s.sort_order,
+              is_closed: s.is_closed,
+              is_won: s.is_won,
             })),
           },
         },
-        include: { stages: { orderBy: { position: 'asc' } } },
+        include: { stages: { orderBy: { sort_order: 'asc' } } },
       });
     }),
 
@@ -100,7 +75,7 @@ export const crmPipelinesRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const existing = await ctx.prisma.crmPipeline.findFirst({
-        where: { id: input.id, organization_id: orgId, deleted_at: null },
+        where: { id: input.id, organization_id: orgId },
       });
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Pipeline not found' });
 
@@ -109,11 +84,7 @@ export const crmPipelinesRouter = createTRPCRouter({
         data: {
           ...(input.data.name !== undefined && { name: input.data.name }),
           ...(input.data.description !== undefined && { description: input.data.description }),
-          ...(input.data.color !== undefined && { color: input.data.color }),
-          ...(input.data.currency !== undefined && { currency: input.data.currency }),
-          ...(input.data.winProbabilityEnabled !== undefined && { win_probability_enabled: input.data.winProbabilityEnabled }),
-          ...(input.data.rottingEnabled !== undefined && { rotting_enabled: input.data.rottingEnabled }),
-          ...(input.data.rottingDays !== undefined && { rotting_days: input.data.rottingDays }),
+          ...(input.data.is_default !== undefined && { is_default: input.data.is_default }),
         },
       });
     }),
@@ -123,13 +94,12 @@ export const crmPipelinesRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const existing = await ctx.prisma.crmPipeline.findFirst({
-        where: { id: input.id, organization_id: orgId, deleted_at: null },
-        include: { _count: { select: { deals: true } } },
+        where: { id: input.id, organization_id: orgId },
       });
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Pipeline not found' });
 
       const openDeals = await ctx.prisma.crmDeal.count({
-        where: { pipeline_id: input.id, deleted_at: null, won_at: null, lost_at: null },
+        where: { pipeline_id: input.id, deleted_at: null, status: 'OPEN' },
       });
       if (openDeals > 0) {
         throw new TRPCError({
@@ -138,25 +108,8 @@ export const crmPipelinesRouter = createTRPCRouter({
         });
       }
 
-      return ctx.prisma.crmPipeline.update({
-        where: { id: input.id },
-        data: { deleted_at: new Date() },
-      });
-    }),
-
-  reorder: protectedProcedure
-    .input(z.object({ orderedIds: z.array(z.string()) }))
-    .mutation(async ({ ctx, input }) => {
-      const orgId = ctx.session.user.organizationId as string;
-      await Promise.all(
-        input.orderedIds.map((id, idx) =>
-          ctx.prisma.crmPipeline.updateMany({
-            where: { id, organization_id: orgId },
-            data: { position: idx },
-          })
-        )
-      );
-      return { success: true };
+      // Hard delete pipeline (cascades to stages via DB)
+      return ctx.prisma.crmPipeline.delete({ where: { id: input.id } });
     }),
 
   setDefault: protectedProcedure
@@ -173,19 +126,19 @@ export const crmPipelinesRouter = createTRPCRouter({
       });
     }),
 
-  // Stages sub-procedures
+  // Stage sub-procedures (use CrmPipelineStage)
   listStages: protectedProcedure
     .input(z.object({ pipelineId: z.string() }))
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const pipeline = await ctx.prisma.crmPipeline.findFirst({
-        where: { id: input.pipelineId, organization_id: orgId, deleted_at: null },
+        where: { id: input.pipelineId, organization_id: orgId },
       });
       if (!pipeline) throw new TRPCError({ code: 'NOT_FOUND', message: 'Pipeline not found' });
 
-      return ctx.prisma.crmStage.findMany({
+      return ctx.prisma.crmPipelineStage.findMany({
         where: { pipeline_id: input.pipelineId },
-        orderBy: { position: 'asc' },
+        orderBy: { sort_order: 'asc' },
       });
     }),
 
@@ -195,32 +148,32 @@ export const crmPipelinesRouter = createTRPCRouter({
         pipelineId: z.string(),
         name: z.string().min(1).max(255),
         color: z.string().default('#6366f1'),
-        probability: z.number().min(0).max(100).default(50),
-        stageType: z.enum(['active', 'won', 'lost']).default('active'),
-        rottable: z.boolean().default(true),
+        win_probability: z.number().min(0).max(100).default(50),
+        is_closed: z.boolean().default(false),
+        is_won: z.boolean().default(false),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const pipeline = await ctx.prisma.crmPipeline.findFirst({
-        where: { id: input.pipelineId, organization_id: orgId, deleted_at: null },
+        where: { id: input.pipelineId, organization_id: orgId },
       });
       if (!pipeline) throw new TRPCError({ code: 'NOT_FOUND', message: 'Pipeline not found' });
 
-      const maxPos = await ctx.prisma.crmStage.aggregate({
+      const maxSort = await ctx.prisma.crmPipelineStage.aggregate({
         where: { pipeline_id: input.pipelineId },
-        _max: { position: true },
+        _max: { sort_order: true },
       });
 
-      return ctx.prisma.crmStage.create({
+      return ctx.prisma.crmPipelineStage.create({
         data: {
           pipeline_id: input.pipelineId,
           name: input.name,
           color: input.color,
-          probability: input.probability,
-          stage_type: input.stageType,
-          rottable: input.rottable,
-          position: (maxPos._max.position ?? 0) + 1,
+          win_probability: input.win_probability,
+          is_closed: input.is_closed,
+          is_won: input.is_won,
+          sort_order: (maxSort._max.sort_order ?? 0) + 1,
         },
       });
     }),
@@ -231,21 +184,21 @@ export const crmPipelinesRouter = createTRPCRouter({
         id: z.string(),
         name: z.string().min(1).max(255).optional(),
         color: z.string().optional(),
-        probability: z.number().min(0).max(100).optional(),
-        stageType: z.enum(['active', 'won', 'lost']).optional(),
-        rottable: z.boolean().optional(),
+        win_probability: z.number().min(0).max(100).optional(),
+        is_closed: z.boolean().optional(),
+        is_won: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
-      return ctx.prisma.crmStage.update({
+      return ctx.prisma.crmPipelineStage.update({
         where: { id },
         data: {
           ...(data.name !== undefined && { name: data.name }),
           ...(data.color !== undefined && { color: data.color }),
-          ...(data.probability !== undefined && { probability: data.probability }),
-          ...(data.stageType !== undefined && { stage_type: data.stageType }),
-          ...(data.rottable !== undefined && { rottable: data.rottable }),
+          ...(data.win_probability !== undefined && { win_probability: data.win_probability }),
+          ...(data.is_closed !== undefined && { is_closed: data.is_closed }),
+          ...(data.is_won !== undefined && { is_won: data.is_won }),
         },
       });
     }),
@@ -259,7 +212,7 @@ export const crmPipelinesRouter = createTRPCRouter({
           data: { stage_id: input.moveTo },
         });
       }
-      return ctx.prisma.crmStage.delete({ where: { id: input.id } });
+      return ctx.prisma.crmPipelineStage.delete({ where: { id: input.id } });
     }),
 
   reorderStages: protectedProcedure
@@ -267,7 +220,7 @@ export const crmPipelinesRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       await Promise.all(
         input.orderedIds.map((id, idx) =>
-          ctx.prisma.crmStage.update({ where: { id }, data: { position: idx } })
+          ctx.prisma.crmPipelineStage.update({ where: { id }, data: { sort_order: idx } })
         )
       );
       return { success: true };

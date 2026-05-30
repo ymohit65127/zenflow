@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { useState } from "react";
 import { api } from "@/trpc/react";
@@ -139,7 +137,7 @@ function StarredSection() {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
         {starred.slice(0, 6).map((doc) => {
           if (!doc) return null;
-          const meta = TYPE_META[(doc.type as DocumentType) ?? "DOCUMENT"];
+          const meta = TYPE_META[("DOCUMENT" as DocumentType)];
           return (
             <Link
               key={doc.id}
@@ -179,7 +177,7 @@ export default function DocumentsPage() {
   const [createType, setCreateType] = useState<DocumentType>("DOCUMENT");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
 
-  const { data: searchData = [] } = api.documents.search.query.useQuery(
+  const { data: searchData } = api.documents.search.query.useQuery(
     { query: searchQuery },
     { enabled: searchQuery.length > 1 }
   );
@@ -201,7 +199,7 @@ export default function DocumentsPage() {
   });
 
   const displayDocs = searchQuery.length > 1
-    ? (searchData.results ?? []).map((r: { id: string; title: string; icon: string | null; updated_at: Date }) => ({ ...r, type: "DOCUMENT" as DocumentType, owner: null }))
+    ? (searchData?.results ?? []).map((r: { id: string; title: string; icon: string | null; updated_at: Date }) => ({ ...r, type: "DOCUMENT" as DocumentType, owner: null }))
     : recent;
 
   const statCards = [
@@ -382,8 +380,8 @@ export default function DocumentsPage() {
             </div>
           ) : viewMode === "grid" ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-              {displayDocs.map((doc) => {
-                const meta = TYPE_META[(doc.type as DocumentType) ?? "DOCUMENT"];
+              {displayDocs.map((doc: { id: string; title: string; icon: string | null; type?: string | null; updated_at: Date; owner?: { name: string } | null }) => {
+                const meta = TYPE_META[("DOCUMENT" as DocumentType)];
                 return (
                   <Link
                     key={doc.id}
@@ -416,8 +414,8 @@ export default function DocumentsPage() {
             </div>
           ) : (
             <div className="bg-card border border-border rounded-2xl overflow-hidden">
-              {displayDocs.map((doc, idx) => {
-                const meta = TYPE_META[(doc.type as DocumentType) ?? "DOCUMENT"];
+              {displayDocs.map((doc: { id: string; title: string; icon: string | null; type?: string | null; updated_at: Date; owner?: { name: string } | null }, idx: number) => {
+                const meta = TYPE_META[("DOCUMENT" as DocumentType)];
                 return (
                   <Link
                     key={doc.id}

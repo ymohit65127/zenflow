@@ -1,11 +1,10 @@
-// @ts-nocheck
 'use client';
 
 import { use, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeft, Send, Lock, Globe, CheckCircle, XCircle, MessageSquare, AlertCircle,
-  Clock, Merge, Scissors, Star, Timer, RefreshCw, MoreHorizontal,
+  Clock, Merge, Scissors, Star, Timer, RefreshCw,
 } from 'lucide-react';
 import { api } from '@/trpc/react';
 import { cn, formatDate, timeAgo, getInitials, generateAvatarColor } from '@/lib/utils';
@@ -175,7 +174,9 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
   }
 
   const isClosed = ['resolved', 'closed'].includes(ticket.status);
-  const totalTimeHours = ticket.time_tracked_minutes ? `${Math.floor(ticket.time_tracked_minutes / 60)}h ${ticket.time_tracked_minutes % 60}m` : '0m';
+  const totalTimeMinutes = ticket.time_logs.reduce((sum, log) => sum + log.minutes, 0);
+  const totalTimeHours = totalTimeMinutes > 0 ? `${Math.floor(totalTimeMinutes / 60)}h ${totalTimeMinutes % 60}m` : '0m';
+  const survey = ticket.surveys[0] ?? null;
 
   return (
     <div className="space-y-5">
@@ -189,7 +190,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
             <span className="font-mono text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{ticket.ticket_number}</span>
             <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium capitalize', STATUS_COLORS[ticket.status] ?? '')}>{ticket.status.replace('_', ' ')}</span>
             <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium capitalize', PRIORITY_COLORS[ticket.priority] ?? '')}>{ticket.priority}</span>
-            {ticket.sla_status && ticket.sla_status !== 'ok' && <SlaStatusBadge slaStatus={ticket.sla_status} />}
+            {ticket.sla_status && <SlaStatusBadge slaStatus={ticket.sla_status} />}
           </div>
           <h1 className="text-xl font-bold mt-1 truncate">{ticket.subject}</h1>
         </div>
@@ -204,15 +205,10 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
         </div>
       </div>
 
-      {/* SLA Timers */}
-      {(ticket.first_response_due_at ?? ticket.resolution_due_at) && (
+      {/* SLA Timer */}
+      {ticket.sla_due_at && (
         <div className="flex items-center gap-3 flex-wrap">
-          {ticket.first_response_due_at && (
-            <SlaTimer dueAt={ticket.first_response_due_at} completedAt={ticket.first_responded_at} label="First Response" />
-          )}
-          {ticket.resolution_due_at && (
-            <SlaTimer dueAt={ticket.resolution_due_at} completedAt={ticket.resolved_at} label="Resolution" />
-          )}
+          <SlaTimer dueAt={ticket.sla_due_at} completedAt={ticket.resolved_at} label="SLA Deadline" />
         </div>
       )}
 
@@ -240,21 +236,21 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
           {/* Replies */}
           {ticket.replies.map((reply) => (
             <div key={reply.id} className={cn('border rounded-2xl p-5',
-              reply.reply_type === 'note' || !reply.is_public
+              reply.reply_type === 'private'
                 ? 'bg-yellow-50/50 border-yellow-200 dark:bg-yellow-900/10 dark:border-yellow-800'
                 : reply.reply_type === 'system'
                   ? 'bg-muted/30 border-border'
                   : 'bg-card border-border')}>
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-medium"
-                  style={{ backgroundColor: generateAvatarColor(reply.created_by ?? reply.from_email ?? 'A') }}>
-                  {getInitials(reply.from_name ?? 'A')}
+                  style={{ backgroundColor: generateAvatarColor(reply.author_id ?? 'A') }}>
+                  {getInitials(reply.author_id ? 'Agent' : 'Customer')}
                 </div>
                 <div className="flex-1">
-                  <p className="font-medium text-sm">{reply.from_name ?? (reply.created_by ? 'Agent' : 'Customer')}</p>
+                  <p className="font-medium text-sm">{reply.author_id ? 'Agent' : 'Customer'}</p>
                   <p className="text-xs text-muted-foreground">{formatDate(reply.created_at, 'MMM d, yyyy HH:mm')}</p>
                 </div>
-                {reply.reply_type === 'note' ? (
+                {reply.reply_type === 'private' ? (
                   <span className="flex items-center gap-1 text-xs text-yellow-600 bg-yellow-100 dark:bg-yellow-900/30 px-2 py-0.5 rounded-full">
                     <Lock className="w-3 h-3" /> Internal Note
                   </span>
@@ -266,12 +262,12 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                   </span>
                 )}
               </div>
-              <p className="text-sm text-muted-foreground whitespace-pre-wrap">{reply.body}</p>
+              <p className="text-sm text-muted-foreground whitespace-pre-wrap">{reply.content}</p>
             </div>
           ))}
 
           {/* CSAT rating */}
-          {ticket.satisfaction_rating && (
+          {survey && (
             <div className="bg-card border border-border rounded-2xl p-5">
               <div className="flex items-center gap-2 mb-2">
                 <Star className="w-4 h-4 text-yellow-500" />
@@ -279,11 +275,11 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
               </div>
               <div className="flex items-center gap-2">
                 {[1,2,3,4,5].map((star) => (
-                  <Star key={star} className={cn('w-5 h-5', star <= Math.round((ticket.satisfaction_rating ?? 0) / 2) ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground')} />
+                  <Star key={star} className={cn('w-5 h-5', star <= Math.round((survey.rating ?? 0) / 2) ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground')} />
                 ))}
-                <span className="text-sm font-medium">{ticket.satisfaction_rating}/10</span>
+                <span className="text-sm font-medium">{survey.rating}/10</span>
               </div>
-              {ticket.satisfaction_comment && <p className="text-sm text-muted-foreground mt-2 italic">&ldquo;{ticket.satisfaction_comment}&rdquo;</p>}
+              {survey.comment && <p className="text-sm text-muted-foreground mt-2 italic">&ldquo;{survey.comment}&rdquo;</p>}
             </div>
           )}
 
@@ -304,7 +300,16 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                   </button>
                 </div>
               </div>
-              <form onSubmit={(e) => { e.preventDefault(); if (!replyContent.trim()) return; replyMutation.mutate({ ticket_id: id, body: replyContent, reply_type: isInternal ? 'note' : 'reply', is_public: !isInternal }); }}>
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                if (!replyContent.trim()) return;
+                replyMutation.mutate({
+                  ticket_id: id,
+                  body: replyContent,
+                  reply_type: isInternal ? 'private' : 'public',
+                  is_public: !isInternal,
+                });
+              }}>
                 <textarea value={replyContent} onChange={(e) => setReplyContent(e.target.value)} rows={5}
                   placeholder={isInternal ? 'Write an internal note…' : 'Write a reply to the customer…'}
                   className="w-full bg-background border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50 resize-none" />
@@ -369,10 +374,10 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
           <div className="bg-card border border-border rounded-2xl p-4 space-y-2.5">
             <h3 className="font-semibold text-sm">Details</h3>
             {[
-              { label: 'Type', value: ticket.type.replace('_', ' ') },
+              { label: 'Type', value: ticket.ticket_type.replace('_', ' ') },
               { label: 'Channel', value: ticket.channel },
               { label: 'Created', value: formatDate(ticket.created_at, 'MMM d, yyyy HH:mm') },
-              { label: 'First Response', value: ticket.first_responded_at ? formatDate(ticket.first_responded_at, 'MMM d, yyyy HH:mm') : 'Not yet' },
+              { label: 'First Response', value: ticket.first_response_at ? formatDate(ticket.first_response_at, 'MMM d, yyyy HH:mm') : 'Not yet' },
               ...(ticket.resolved_at ? [{ label: 'Resolved', value: formatDate(ticket.resolved_at, 'MMM d, yyyy HH:mm') }] : []),
               ...(ticket.category ? [{ label: 'Category', value: ticket.category.name }] : []),
               ...(ticket.team ? [{ label: 'Team', value: ticket.team.name }] : []),
@@ -397,34 +402,13 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
               <div className="mt-3 space-y-1.5">
                 {ticket.time_logs.slice(0, 3).map((log) => (
                   <div key={log.id} className="flex justify-between text-xs text-muted-foreground">
-                    <span>{log.note ?? 'Work'}</span>
+                    <span>{log.description ?? 'Work'}</span>
                     <span>{log.minutes}m · {timeAgo(log.logged_at)}</span>
                   </div>
                 ))}
               </div>
             )}
           </div>
-
-          {/* Merged / Related tickets */}
-          {(ticket.merged_tickets.length > 0 || ticket.child_tickets.length > 0) && (
-            <div className="bg-card border border-border rounded-2xl p-4">
-              <h3 className="font-semibold text-sm mb-3">Related Tickets</h3>
-              {ticket.merged_tickets.map((t) => (
-                <Link key={t.id} href={`/helpdesk/tickets/${t.id}`} className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground py-1">
-                  <Merge className="w-3.5 h-3.5" />
-                  <span>{t.ticket_number}</span>
-                  <span className="truncate">{t.subject}</span>
-                </Link>
-              ))}
-              {ticket.child_tickets.map((t) => (
-                <Link key={t.id} href={`/helpdesk/tickets/${t.id}`} className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground py-1">
-                  <Scissors className="w-3.5 h-3.5" />
-                  <span>{t.ticket_number}</span>
-                  <span className="truncate">{t.subject}</span>
-                </Link>
-              ))}
-            </div>
-          )}
 
           {/* Tags */}
           {ticket.tags.length > 0 && (

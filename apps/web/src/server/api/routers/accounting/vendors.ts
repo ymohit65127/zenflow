@@ -1,7 +1,7 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { Prisma } from '@prisma/client';
 
 export const vendorsRouter = createTRPCRouter({
   list: protectedProcedure
@@ -123,7 +123,7 @@ export const vendorsRouter = createTRPCRouter({
           tds_applicable: input.tds_applicable ?? false,
           tds_section: input.tds_section ?? null,
           tds_rate: input.tds_rate ?? null,
-          billing_address: input.billing_address ?? undefined,
+          billing_address: input.billing_address ? (input.billing_address as unknown as Prisma.InputJsonValue) : undefined,
         },
       });
     }),
@@ -155,12 +155,20 @@ export const vendorsRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId;
-      const { id, ...data } = input;
+      const { id, billing_address, ...rest } = input;
       const vendor = await ctx.prisma.accVendor.findFirst({
         where: { id, org_id: orgId, deleted_at: null },
       });
       if (!vendor) throw new TRPCError({ code: 'NOT_FOUND', message: 'Vendor not found' });
-      return ctx.prisma.accVendor.update({ where: { id }, data });
+      return ctx.prisma.accVendor.update({
+        where: { id },
+        data: {
+          ...rest,
+          ...(billing_address !== undefined && {
+            billing_address: billing_address ? (billing_address as unknown as Prisma.InputJsonValue) : undefined,
+          }),
+        },
+      });
     }),
 
   delete: protectedProcedure

@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import { use, useState } from 'react';
@@ -193,7 +192,7 @@ export default function MilestonesPage({ params }: { params: Promise<{ id: strin
             const dueDate = new Date(milestone.due_date);
             const isPast = dueDate < today;
             const isOverdue = isPast && milestone.status === 'pending';
-            const statusInfo = STATUS_STYLES[milestone.status] ?? STATUS_STYLES.pending;
+            const statusInfo = STATUS_STYLES[milestone.status] ?? STATUS_STYLES['pending']!;
             const StatusIcon = statusInfo.icon;
 
             return (
@@ -209,16 +208,16 @@ export default function MilestonesPage({ params }: { params: Promise<{ id: strin
                 <div className="flex flex-col items-center gap-1 flex-shrink-0 pt-0.5">
                   <div
                     className="w-4 h-4 rotate-45"
-                    style={{ backgroundColor: milestone.color }}
+                    style={{ backgroundColor: '#F59E0B' }}
                   />
                 </div>
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium">{milestone.name}</span>
-                    <div className={cn('flex items-center gap-1 text-xs', statusInfo.className)}>
+                    <div className={cn('flex items-center gap-1 text-xs', statusInfo?.className ?? '')}>
                       <StatusIcon className="w-3 h-3" />
-                      {statusInfo.label}
+                      {statusInfo?.label ?? milestone.status}
                     </div>
                     {isOverdue && (
                       <span className="text-xs text-red-500 font-medium">Overdue</span>
@@ -230,10 +229,9 @@ export default function MilestonesPage({ params }: { params: Promise<{ id: strin
                     {milestone.achieved_at && (
                       <span className="text-green-600">Achieved: {formatDate(milestone.achieved_at)}</span>
                     )}
-                    {milestone.phase && (
-                      <span>Phase: {(milestone.phase as { name: string }).name}</span>
+                    {milestone.phase_id && (
+                      <span>Phase: {phases?.find((p) => p.id === milestone.phase_id)?.name ?? ''}</span>
                     )}
-                    <span>{(milestone._count as { tasks: number }).tasks} tasks</span>
                   </div>
 
                   {milestone.description && (

@@ -1,27 +1,26 @@
-// @ts-nocheck
-import { createTRPCRouter, protectedProcedure, publicProcedure } from '@/server/trpc';
+import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { CrmDiscountType } from '@prisma/client';
 
 const QuoteLineSchema = z.object({
   product_id: z.string().optional(),
-  name: z.string().min(1),
-  description: z.string().optional(),
+  description: z.string().min(1),
   quantity: z.number().min(0.001),
   unit_price: z.number().min(0),
-  discount_type: z.enum(['percent', 'amount']).optional(),
-  discount_value: z.number().default(0),
-  tax_rate: z.number().default(0),
+  discount_type: z.enum(['percent', 'amount']).default('percent'),
+  discount: z.number().default(0),
+  tax_percent: z.number().default(0),
   position: z.number().default(0),
 });
 
 function calcLineTotal(line: z.infer<typeof QuoteLineSchema>): number {
   const discountAmt =
     line.discount_type === 'percent'
-      ? line.quantity * line.unit_price * (line.discount_value / 100)
-      : (line.discount_value ?? 0);
+      ? line.quantity * line.unit_price * (line.discount / 100)
+      : line.discount;
   const subtotal = line.quantity * line.unit_price - discountAmt;
-  return subtotal * (1 + line.tax_rate);
+  return subtotal * (1 + line.tax_percent / 100);
 }
 
 export const crmQuotesRouter = createTRPCRouter({
@@ -39,6 +38,7 @@ export const crmQuotesRouter = createTRPCRouter({
       const quotes = await ctx.prisma.crmQuote.findMany({
         where: {
           organization_id: orgId,
+          deleted_at: null,
           ...(input.dealId && { deal_id: input.dealId }),
           ...(input.status && { status: input.status }),
           ...(input.cursor && { id: { lt: input.cursor } }),
@@ -46,8 +46,6 @@ export const crmQuotesRouter = createTRPCRouter({
         take: (input.limit ?? 25) + 1,
         orderBy: { created_at: 'desc' },
         include: {
-          deal: { select: { id: true, name: true } },
-          contact: { select: { id: true, first_name: true, last_name: true, email: true } },
           _count: { select: { lines: true } },
         },
       });
@@ -66,12 +64,9 @@ export const crmQuotesRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const quote = await ctx.prisma.crmQuote.findFirst({
-        where: { id: input.id, organization_id: orgId },
+        where: { id: input.id, organization_id: orgId, deleted_at: null },
         include: {
           lines: { orderBy: { position: 'asc' }, include: { product: true } },
-          deal: true,
-          contact: true,
-          creator: { select: { id: true, name: true } },
         },
       });
       if (!quote) throw new TRPCError({ code: 'NOT_FOUND', message: 'Quote not found' });
@@ -81,7 +76,7 @@ export const crmQuotesRouter = createTRPCRouter({
   create: protectedProcedure
     .input(
       z.object({
-        dealId: z.string(),
+        dealId: z.string().optional(),
         title: z.string().min(1).max(255),
         contactId: z.string().optional(),
         validUntil: z.date().optional(),
@@ -97,18 +92,15 @@ export const crmQuotesRouter = createTRPCRouter({
       // Generate unique quote number
       const count = await ctx.prisma.crmQuote.count({ where: { organization_id: orgId } });
       const year = new Date().getFullYear();
-      const number = `QT-${year}-${String(count + 1).padStart(4, '0')}`;
-
-      // Generate tracking pixel ID
-      const trackingPixelId = crypto.randomUUID().replace(/-/g, '');
+      const quote_number = `QT-${year}-${String(count + 1).padStart(4, '0')}`;
 
       return ctx.prisma.crmQuote.create({
         data: {
           organization_id: orgId,
-          deal_id: input.dealId,
+          deal_id: input.dealId ?? null,
           contact_id: input.contactId ?? null,
           created_by: userId,
-          number,
+          quote_number,
           title: input.title,
           status: 'draft',
           valid_until: input.validUntil ?? null,
@@ -118,8 +110,7 @@ export const crmQuotesRouter = createTRPCRouter({
           subtotal: 0,
           discount_total: 0,
           tax_total: 0,
-          grand_total: 0,
-          tracking_pixel_id: trackingPixelId,
+          total: 0,
         },
       });
     }),
@@ -141,7 +132,7 @@ export const crmQuotesRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const existing = await ctx.prisma.crmQuote.findFirst({
-        where: { id: input.id, organization_id: orgId },
+        where: { id: input.id, organization_id: orgId, deleted_at: null },
       });
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Quote not found' });
 
@@ -168,7 +159,7 @@ export const crmQuotesRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const quote = await ctx.prisma.crmQuote.findFirst({
-        where: { id: input.quoteId, organization_id: orgId },
+        where: { id: input.quoteId, organization_id: orgId, deleted_at: null },
       });
       if (!quote) throw new TRPCError({ code: 'NOT_FOUND', message: 'Quote not found' });
 
@@ -179,10 +170,10 @@ export const crmQuotesRouter = createTRPCRouter({
       const linesData = input.lines.map((line, idx) => {
         const discountAmt =
           line.discount_type === 'percent'
-            ? line.quantity * line.unit_price * (line.discount_value / 100)
-            : (line.discount_value ?? 0);
+            ? line.quantity * line.unit_price * (line.discount / 100)
+            : line.discount;
         const lineSubtotal = line.quantity * line.unit_price;
-        const lineTax = (lineSubtotal - discountAmt) * line.tax_rate;
+        const lineTax = (lineSubtotal - discountAmt) * (line.tax_percent / 100);
         const lineTotal = calcLineTotal(line);
 
         subtotal += lineSubtotal;
@@ -192,26 +183,25 @@ export const crmQuotesRouter = createTRPCRouter({
         return {
           quote_id: input.quoteId,
           product_id: line.product_id ?? null,
-          name: line.name,
-          description: line.description ?? null,
+          description: line.description,
           quantity: line.quantity,
           unit_price: line.unit_price,
-          discount_type: line.discount_type ?? null,
-          discount_value: line.discount_value,
-          tax_rate: line.tax_rate,
-          line_total: lineTotal,
+          discount_type: line.discount_type as unknown as CrmDiscountType,
+          discount: line.discount,
+          tax_percent: line.tax_percent,
+          total: lineTotal,
           position: idx,
         };
       });
 
-      const grandTotal = subtotal - discountTotal + taxTotal;
+      const total = subtotal - discountTotal + taxTotal;
 
       await ctx.prisma.$transaction([
         ctx.prisma.crmQuoteLine.deleteMany({ where: { quote_id: input.quoteId } }),
         ctx.prisma.crmQuoteLine.createMany({ data: linesData }),
         ctx.prisma.crmQuote.update({
           where: { id: input.quoteId },
-          data: { subtotal, discount_total: discountTotal, tax_total: taxTotal, grand_total: grandTotal },
+          data: { subtotal, discount_total: discountTotal, tax_total: taxTotal, total },
         }),
       ]);
 
@@ -232,7 +222,7 @@ export const crmQuotesRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const quote = await ctx.prisma.crmQuote.findFirst({
-        where: { id: input.quoteId, organization_id: orgId },
+        where: { id: input.quoteId, organization_id: orgId, deleted_at: null },
       });
       if (!quote) throw new TRPCError({ code: 'NOT_FOUND', message: 'Quote not found' });
 
@@ -247,7 +237,7 @@ export const crmQuotesRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const quote = await ctx.prisma.crmQuote.findFirst({
-        where: { id: input.quoteId, organization_id: orgId },
+        where: { id: input.quoteId, organization_id: orgId, deleted_at: null },
       });
       if (!quote) throw new TRPCError({ code: 'NOT_FOUND', message: 'Quote not found' });
 
@@ -263,15 +253,8 @@ export const crmQuotesRouter = createTRPCRouter({
       const orgId = ctx.session.user.organizationId as string;
       return ctx.prisma.crmQuote.update({
         where: { id: input.quoteId, organization_id: orgId },
-        data: { status: 'rejected', rejected_at: new Date() },
+        data: { status: 'rejected' },
       });
-    }),
-
-  trackOpen: publicProcedure
-    .input(z.object({ pixelId: z.string() }))
-    .mutation(async ({ ctx }) => {
-      // Note: pixel tracking handled via route handler
-      return { success: true };
     }),
 
   delete: protectedProcedure
@@ -279,15 +262,19 @@ export const crmQuotesRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const quote = await ctx.prisma.crmQuote.findFirst({
-        where: { id: input.id, organization_id: orgId },
+        where: { id: input.id, organization_id: orgId, deleted_at: null },
       });
       if (!quote) throw new TRPCError({ code: 'NOT_FOUND', message: 'Quote not found' });
 
       if (quote.status === 'draft') {
-        await ctx.prisma.crmQuoteLine.deleteMany({ where: { quote_id: input.id } });
+        // Lines cascade delete via DB relation
         return ctx.prisma.crmQuote.delete({ where: { id: input.id } });
       }
 
-      return { success: true };
+      // Soft delete for non-draft
+      return ctx.prisma.crmQuote.update({
+        where: { id: input.id },
+        data: { deleted_at: new Date() },
+      });
     }),
 });

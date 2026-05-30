@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -16,7 +15,7 @@ const ActionSchema = z.object({
 
 const RoutingRuleSchema = z.object({
   name: z.string().min(1).max(200),
-  priority: z.number().int().min(0).default(0),
+  position: z.number().int().min(0).default(0),
   conditions: z.array(ConditionSchema),
   actions: z.array(ActionSchema),
   is_active: z.boolean().default(true),
@@ -27,7 +26,7 @@ export const routingRouter = createTRPCRouter({
     const orgId = ctx.session.user.organizationId;
     return ctx.prisma.hdRoutingRule.findMany({
       where: { organization_id: orgId },
-      orderBy: { priority: 'asc' },
+      orderBy: { position: 'asc' },
     });
   }),
 
@@ -48,9 +47,9 @@ export const routingRouter = createTRPCRouter({
         data: {
           organization_id: orgId,
           name: input.name,
-          priority: input.priority,
-          conditions: input.conditions,
-          actions: input.actions,
+          position: input.position,
+          conditions: input.conditions as never,
+          actions: input.actions as never,
           is_active: input.is_active,
         },
       });
@@ -68,9 +67,9 @@ export const routingRouter = createTRPCRouter({
         where: { id },
         data: {
           name: rest.name,
-          priority: rest.priority,
-          conditions: rest.conditions,
-          actions: rest.actions,
+          position: rest.position,
+          conditions: rest.conditions as never,
+          actions: rest.actions as never,
           is_active: rest.is_active,
         },
       });
@@ -93,7 +92,7 @@ export const routingRouter = createTRPCRouter({
         input.ids.map((id, index) =>
           ctx.prisma.hdRoutingRule.updateMany({
             where: { id, organization_id: orgId },
-            data: { priority: index },
+            data: { position: index },
           }),
         ),
       );

@@ -1,6 +1,4 @@
-// @ts-nocheck
 "use client";
-// @ts-nocheck
 
 import { use, useState } from "react";
 import { ArrowLeft, AlertTriangle, CheckCircle, Layers, Calculator } from "lucide-react";
@@ -42,9 +40,9 @@ export default function BOMDetailPage({ params }: { params: Promise<{ id: string
             {bom.product.name} · v{bom.version}
           </p>
         </div>
-        {bom.is_default && (
+        {bom.is_active && (
           <span className="ml-2 text-xs px-2 py-0.5 bg-brand-500/10 text-brand-500 rounded-full font-medium">
-            Default
+            Active
           </span>
         )}
       </div>
@@ -54,7 +52,7 @@ export default function BOMDetailPage({ params }: { params: Promise<{ id: string
         <div className="px-6 py-4 border-b border-border">
           <h2 className="font-semibold">Components</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Per {Number(bom.quantity)} {bom.unit ?? "units"} of output
+            Per {Number(bom.output_qty)} units of output
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -71,16 +69,12 @@ export default function BOMDetailPage({ params }: { params: Promise<{ id: string
                 <tr key={line.id} className="hover:bg-muted/20">
                   <td className="px-5 py-3 text-sm text-muted-foreground">{line.position + 1}</td>
                   <td className="px-5 py-3">
-                    <p className="font-medium text-sm">{line.component_product.name}</p>
-                    <p className="text-xs text-muted-foreground font-mono">{line.component_product.sku}</p>
+                    <p className="font-medium text-sm">{line.component.name}</p>
+                    <p className="text-xs text-muted-foreground font-mono">{line.component.sku}</p>
                   </td>
                   <td className="px-5 py-3 text-sm font-semibold">{Number(line.quantity)}</td>
-                  <td className="px-5 py-3 text-sm text-muted-foreground">{line.unit ?? String(line.component_product.unit_of_measure)}</td>
-                  <td className="px-5 py-3 text-sm">
-                    {Number(line.scrap_percent) > 0 ? (
-                      <span className="text-amber-600">{Number(line.scrap_percent)}%</span>
-                    ) : "—"}
-                  </td>
+                  <td className="px-5 py-3 text-sm text-muted-foreground">{String(line.unit_of_measure)}</td>
+                  <td className="px-5 py-3 text-sm">—</td>
                   <td className="px-5 py-3 text-sm text-muted-foreground">{line.notes ?? "—"}</td>
                 </tr>
               ))}
@@ -88,7 +82,7 @@ export default function BOMDetailPage({ params }: { params: Promise<{ id: string
           </table>
         </div>
         <div className="px-6 py-3 border-t border-border flex items-center justify-between text-sm text-muted-foreground">
-          <span>Overhead cost: <strong className="text-foreground">₹{Number(bom.overhead_cost).toFixed(2)}</strong></span>
+          <span>Output Qty: <strong className="text-foreground">{Number(bom.output_qty)}</strong></span>
         </div>
       </div>
 
@@ -183,18 +177,10 @@ export default function BOMDetailPage({ params }: { params: Promise<{ id: string
                 </tbody>
               </table>
             </div>
-            <div className="px-6 py-4 border-t border-border grid grid-cols-3 gap-4 text-sm">
+            <div className="px-6 py-4 border-t border-border grid grid-cols-1 gap-4 text-sm">
               <div className="bg-muted/40 rounded-xl p-3 text-center">
-                <p className="text-xs text-muted-foreground mb-1">Material Cost</p>
+                <p className="text-xs text-muted-foreground mb-1">Total Material Cost</p>
                 <p className="font-bold text-lg">₹{explosion.total_material_cost.toFixed(2)}</p>
-              </div>
-              <div className="bg-muted/40 rounded-xl p-3 text-center">
-                <p className="text-xs text-muted-foreground mb-1">Overhead</p>
-                <p className="font-bold text-lg">₹{explosion.overhead_cost.toFixed(2)}</p>
-              </div>
-              <div className="bg-brand-500/10 rounded-xl p-3 text-center">
-                <p className="text-xs text-brand-500 mb-1">Total Production Cost</p>
-                <p className="font-bold text-lg text-brand-500">₹{explosion.total_production_cost.toFixed(2)}</p>
               </div>
             </div>
           </>

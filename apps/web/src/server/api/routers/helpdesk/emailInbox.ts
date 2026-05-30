@@ -1,14 +1,12 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { HdEmailProvider } from '@zenflow/db';
 
 const EmailInboxSchema = z.object({
   name: z.string().min(1).max(100),
   email_address: z.string().email(),
-  provider: z.enum(['gmail', 'outlook', 'other']).default('other'),
-  team_id: z.string().optional(),
-  default_priority: z.enum(['low', 'medium', 'high', 'urgent']).default('medium'),
+  provider: z.enum(['gmail', 'outlook', 'smtp', 'imap']).default('imap'),
   is_active: z.boolean().default(true),
 });
 
@@ -17,7 +15,6 @@ export const emailInboxRouter = createTRPCRouter({
     const orgId = ctx.session.user.organizationId;
     return ctx.prisma.hdEmailInbox.findMany({
       where: { organization_id: orgId },
-      include: { team: { select: { id: true, name: true } } },
       orderBy: { name: 'asc' },
     });
   }),
@@ -28,7 +25,6 @@ export const emailInboxRouter = createTRPCRouter({
       const orgId = ctx.session.user.organizationId;
       const inbox = await ctx.prisma.hdEmailInbox.findFirst({
         where: { id: input.id, organization_id: orgId },
-        include: { team: true },
       });
       if (!inbox) throw new TRPCError({ code: 'NOT_FOUND', message: 'Email inbox not found' });
       return inbox;
@@ -49,9 +45,8 @@ export const emailInboxRouter = createTRPCRouter({
           organization_id: orgId,
           name: input.name,
           email_address: input.email_address,
-          provider: input.provider,
-          team_id: input.team_id ?? null,
-          default_priority: input.default_priority,
+          provider: input.provider as HdEmailProvider,
+          credentials_enc: {},
           is_active: input.is_active,
         },
       });
@@ -69,9 +64,7 @@ export const emailInboxRouter = createTRPCRouter({
         where: { id },
         data: {
           name: rest.name,
-          provider: rest.provider,
-          team_id: rest.team_id ?? null,
-          default_priority: rest.default_priority,
+          provider: rest.provider as HdEmailProvider,
           is_active: rest.is_active,
         },
       });

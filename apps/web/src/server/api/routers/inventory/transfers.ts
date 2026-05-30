@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -8,7 +7,7 @@ async function generateTransferNumber(
   orgId: string
 ): Promise<string> {
   const last = await prisma.invStockTransfer.findFirst({
-    where: { org_id: orgId, transfer_number: { startsWith: 'TRF-' } },
+    where: { organization_id: orgId, transfer_number: { startsWith: 'TRF-' } },
     orderBy: { created_at: 'desc' },
     select: { transfer_number: true },
   });
@@ -32,12 +31,10 @@ export const transfersRouter = createTRPCRouter({
       const [items, total] = await Promise.all([
         ctx.prisma.invStockTransfer.findMany({
           where: {
-            org_id: orgId,
+            organization_id: orgId,
             ...(input.status ? { status: input.status } : {}),
           },
           include: {
-            from_warehouse: { select: { id: true, name: true, code: true } },
-            to_warehouse: { select: { id: true, name: true, code: true } },
             _count: { select: { lines: true } },
           },
           take: input.limit,
@@ -45,10 +42,26 @@ export const transfersRouter = createTRPCRouter({
           orderBy: { created_at: 'desc' },
         }),
         ctx.prisma.invStockTransfer.count({
-          where: { org_id: orgId, ...(input.status ? { status: input.status } : {}) },
+          where: { organization_id: orgId, ...(input.status ? { status: input.status } : {}) },
         }),
       ]);
-      return { items, total };
+      // Fetch warehouse names separately since there are no direct relations
+      const warehouseIds = new Set<string>();
+      items.forEach((t) => {
+        warehouseIds.add(t.from_warehouse_id);
+        warehouseIds.add(t.to_warehouse_id);
+      });
+      const warehouses = await ctx.prisma.invWarehouse.findMany({
+        where: { id: { in: [...warehouseIds] } },
+        select: { id: true, name: true, code: true },
+      });
+      const whMap = new Map(warehouses.map((w) => [w.id, w]));
+      const enriched = items.map((t) => ({
+        ...t,
+        from_warehouse: whMap.get(t.from_warehouse_id) ?? null,
+        to_warehouse: whMap.get(t.to_warehouse_id) ?? null,
+      }));
+      return { items: enriched, total };
     }),
 
   get: protectedProcedure
@@ -56,21 +69,27 @@ export const transfersRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const transfer = await ctx.prisma.invStockTransfer.findFirst({
-        where: { id: input.id, org_id: orgId },
+        where: { id: input.id, organization_id: orgId },
         include: {
-          from_warehouse: true,
-          to_warehouse: true,
           lines: {
             include: {
               product: { select: { id: true, name: true, sku: true, unit_of_measure: true } },
-              from_location: { select: { id: true, name: true, code: true } },
-              to_location: { select: { id: true, name: true, code: true } },
             },
           },
         },
       });
       if (!transfer) throw new TRPCError({ code: 'NOT_FOUND', message: 'Transfer not found' });
-      return transfer;
+      // Fetch warehouse names
+      const warehouses = await ctx.prisma.invWarehouse.findMany({
+        where: { id: { in: [transfer.from_warehouse_id, transfer.to_warehouse_id] } },
+        select: { id: true, name: true, code: true },
+      });
+      const whMap = new Map(warehouses.map((w) => [w.id, w]));
+      return {
+        ...transfer,
+        from_warehouse: whMap.get(transfer.from_warehouse_id) ?? null,
+        to_warehouse: whMap.get(transfer.to_warehouse_id) ?? null,
+      };
     }),
 
   create: protectedProcedure
@@ -78,17 +97,15 @@ export const transfersRouter = createTRPCRouter({
       z.object({
         from_warehouse_id: z.string(),
         to_warehouse_id: z.string(),
-        scheduled_date: z.string().optional(),
         notes: z.string().optional(),
         lines: z.array(
           z.object({
             product_id: z.string(),
             variant_id: z.string().optional(),
-            from_location_id: z.string().optional(),
-            to_location_id: z.string().optional(),
-            quantity_requested: z.number().positive(),
+            quantity: z.number().positive(),
             unit_cost: z.number().min(0).default(0),
             lot_id: z.string().optional(),
+            serial_id: z.string().optional(),
           })
         ).min(1),
       })
@@ -101,54 +118,39 @@ export const transfersRouter = createTRPCRouter({
 
       const transferNumber = await generateTransferNumber(ctx.prisma, orgId);
 
-      return ctx.prisma.invStockTransfer.create({
+      const transfer = await ctx.prisma.invStockTransfer.create({
         data: {
-          org_id: orgId,
+          organization_id: orgId,
           transfer_number: transferNumber,
           from_warehouse_id: input.from_warehouse_id,
           to_warehouse_id: input.to_warehouse_id,
           status: 'draft',
-          scheduled_date: input.scheduled_date ? new Date(input.scheduled_date) : null,
           notes: input.notes ?? null,
-          created_by: ctx.session.user.id,
+          requested_by: ctx.session.user.id,
           lines: {
             create: input.lines.map((line) => ({
               product_id: line.product_id,
               variant_id: line.variant_id ?? null,
-              from_location_id: line.from_location_id ?? null,
-              to_location_id: line.to_location_id ?? null,
-              quantity_requested: line.quantity_requested,
-              quantity_shipped: 0,
-              quantity_received: 0,
+              quantity: line.quantity,
               unit_cost: line.unit_cost,
               lot_id: line.lot_id ?? null,
+              serial_id: line.serial_id ?? null,
             })),
           },
         },
         include: {
-          from_warehouse: true,
-          to_warehouse: true,
           lines: { include: { product: { select: { name: true, sku: true } } } },
         },
       });
+      return transfer;
     }),
 
   ship: protectedProcedure
-    .input(
-      z.object({
-        id: z.string(),
-        lines: z.array(
-          z.object({
-            line_id: z.string(),
-            quantity_shipped: z.number().min(0),
-          })
-        ),
-      })
-    )
+    .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const transfer = await ctx.prisma.invStockTransfer.findFirst({
-        where: { id: input.id, org_id: orgId },
+        where: { id: input.id, organization_id: orgId },
         include: { lines: true },
       });
       if (!transfer) throw new TRPCError({ code: 'NOT_FOUND', message: 'Transfer not found' });
@@ -157,30 +159,27 @@ export const transfersRouter = createTRPCRouter({
       }
 
       await ctx.prisma.$transaction(async (tx) => {
-        for (const shipLine of input.lines) {
-          const line = transfer.lines.find((l) => l.id === shipLine.line_id);
-          if (!line) continue;
-          if (shipLine.quantity_shipped <= 0) continue;
+        for (const line of transfer.lines) {
+          const qty = Number(line.quantity);
+          if (qty <= 0) continue;
 
           // Check source stock
           const srcLevel = await tx.invStockLevel.findUnique({
             where: {
               product_id_variant_id_warehouse_id_location_id: {
                 product_id: line.product_id,
-                variant_id: line.variant_id ?? null,
+                variant_id: (line.variant_id ?? null) as unknown as string,
                 warehouse_id: transfer.from_warehouse_id,
-                location_id: line.from_location_id ?? null,
+                location_id: null as unknown as string,
               },
             },
           });
-          const available = Number(srcLevel?.quantity_on_hand ?? 0);
-          const fromWarehouse = await tx.invWarehouse.findUnique({
-            where: { id: transfer.from_warehouse_id },
-          });
-          if (available < shipLine.quantity_shipped && !fromWarehouse?.allow_negative_stock) {
+          const available = Number(srcLevel?.quantity ?? 0);
+
+          if (available < qty) {
             throw new TRPCError({
               code: 'BAD_REQUEST',
-              message: `Insufficient stock for product ${line.product_id}. Available: ${available}, Requested: ${shipLine.quantity_shipped}`,
+              message: `Insufficient stock for product ${line.product_id}. Available: ${available}, Requested: ${qty}`,
             });
           }
 
@@ -189,82 +188,61 @@ export const transfersRouter = createTRPCRouter({
             where: {
               product_id_variant_id_warehouse_id_location_id: {
                 product_id: line.product_id,
-                variant_id: line.variant_id ?? null,
+                variant_id: (line.variant_id ?? null) as unknown as string,
                 warehouse_id: transfer.from_warehouse_id,
-                location_id: line.from_location_id ?? null,
+                location_id: null as unknown as string,
               },
             },
             create: {
-              org_id: orgId,
+              organization_id: orgId,
               product_id: line.product_id,
               variant_id: line.variant_id ?? null,
               warehouse_id: transfer.from_warehouse_id,
-              location_id: line.from_location_id ?? null,
-              quantity_on_hand: -shipLine.quantity_shipped,
-              average_cost: Number(line.unit_cost),
-              total_value: 0,
-              last_movement_at: new Date(),
+              location_id: null,
+              quantity: -qty,
+              avg_cost: Number(line.unit_cost),
             },
             update: {
-              quantity_on_hand: { decrement: shipLine.quantity_shipped },
-              last_movement_at: new Date(),
+              quantity: { decrement: qty },
             },
           });
 
           // Create transfer_out movement
           await tx.invStockMovement.create({
             data: {
-              org_id: orgId,
+              organization_id: orgId,
               movement_type: 'transfer_out',
               reference_type: 'stock_transfer',
               reference_id: input.id,
               product_id: line.product_id,
               variant_id: line.variant_id ?? null,
               warehouse_id: transfer.from_warehouse_id,
-              from_location_id: line.from_location_id ?? null,
               lot_id: line.lot_id ?? null,
-              quantity: shipLine.quantity_shipped,
+              quantity: qty,
               unit_cost: Number(line.unit_cost),
-              total_cost: shipLine.quantity_shipped * Number(line.unit_cost),
-              running_stock: available - shipLine.quantity_shipped,
-              created_by: ctx.session.user.id,
+              total_cost: qty * Number(line.unit_cost),
             },
-          });
-
-          await tx.invStockTransferLine.update({
-            where: { id: shipLine.line_id },
-            data: { quantity_shipped: shipLine.quantity_shipped },
           });
         }
 
         await tx.invStockTransfer.update({
           where: { id: input.id },
-          data: { status: 'in_transit', shipped_date: new Date() },
+          data: { status: 'in_transit', shipped_at: new Date() },
         });
       });
 
       return ctx.prisma.invStockTransfer.findUnique({
         where: { id: input.id },
-        include: { lines: { include: { product: { select: { name: true, sku: true } } } }, from_warehouse: true, to_warehouse: true },
+        include: { lines: { include: { product: { select: { name: true, sku: true } } } } },
       });
     }),
 
   receive: protectedProcedure
-    .input(
-      z.object({
-        id: z.string(),
-        lines: z.array(
-          z.object({
-            line_id: z.string(),
-            quantity_received: z.number().min(0),
-          })
-        ),
-      })
-    )
+    .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const transfer = await ctx.prisma.invStockTransfer.findFirst({
-        where: { id: input.id, org_id: orgId },
+        where: { id: input.id, organization_id: orgId },
         include: { lines: true },
       });
       if (!transfer) throw new TRPCError({ code: 'NOT_FOUND', message: 'Transfer not found' });
@@ -273,66 +251,60 @@ export const transfersRouter = createTRPCRouter({
       }
 
       await ctx.prisma.$transaction(async (tx) => {
-        for (const recLine of input.lines) {
-          const line = transfer.lines.find((l) => l.id === recLine.line_id);
-          if (!line || recLine.quantity_received <= 0) continue;
+        for (const line of transfer.lines) {
+          const qty = Number(line.quantity);
+          if (qty <= 0) continue;
 
           // Add to destination
           await tx.invStockLevel.upsert({
             where: {
               product_id_variant_id_warehouse_id_location_id: {
                 product_id: line.product_id,
-                variant_id: line.variant_id ?? null,
+                variant_id: (line.variant_id ?? null) as unknown as string,
                 warehouse_id: transfer.to_warehouse_id,
-                location_id: line.to_location_id ?? null,
+                location_id: null as unknown as string,
               },
             },
             create: {
-              org_id: orgId,
+              organization_id: orgId,
               product_id: line.product_id,
               variant_id: line.variant_id ?? null,
               warehouse_id: transfer.to_warehouse_id,
-              location_id: line.to_location_id ?? null,
-              quantity_on_hand: recLine.quantity_received,
-              average_cost: Number(line.unit_cost),
-              total_value: recLine.quantity_received * Number(line.unit_cost),
-              last_movement_at: new Date(),
+              location_id: null,
+              quantity: qty,
+              avg_cost: Number(line.unit_cost),
             },
             update: {
-              quantity_on_hand: { increment: recLine.quantity_received },
-              last_movement_at: new Date(),
+              quantity: { increment: qty },
             },
           });
 
           // Create transfer_in movement
           await tx.invStockMovement.create({
             data: {
-              org_id: orgId,
+              organization_id: orgId,
               movement_type: 'transfer_in',
               reference_type: 'stock_transfer',
               reference_id: input.id,
               product_id: line.product_id,
               variant_id: line.variant_id ?? null,
               warehouse_id: transfer.to_warehouse_id,
-              to_location_id: line.to_location_id ?? null,
               lot_id: line.lot_id ?? null,
-              quantity: recLine.quantity_received,
+              quantity: qty,
               unit_cost: Number(line.unit_cost),
-              total_cost: recLine.quantity_received * Number(line.unit_cost),
-              running_stock: recLine.quantity_received,
-              created_by: ctx.session.user.id,
+              total_cost: qty * Number(line.unit_cost),
             },
           });
 
           await tx.invStockTransferLine.update({
-            where: { id: recLine.line_id },
-            data: { quantity_received: recLine.quantity_received },
+            where: { id: line.id },
+            data: { received_qty: qty },
           });
         }
 
         await tx.invStockTransfer.update({
           where: { id: input.id },
-          data: { status: 'received', received_date: new Date() },
+          data: { status: 'received', received_at: new Date() },
         });
       });
 
@@ -344,7 +316,7 @@ export const transfersRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.session.user.organizationId as string;
       const transfer = await ctx.prisma.invStockTransfer.findFirst({
-        where: { id: input.id, org_id: orgId },
+        where: { id: input.id, organization_id: orgId },
       });
       if (!transfer) throw new TRPCError({ code: 'NOT_FOUND', message: 'Transfer not found' });
       if (transfer.status === 'received') {

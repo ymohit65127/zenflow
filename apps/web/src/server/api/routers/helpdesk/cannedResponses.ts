@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -7,22 +6,19 @@ const CannedResponseSchema = z.object({
   name: z.string().min(1).max(200),
   shortcut: z.string().min(1).max(50),
   content: z.string().min(1),
-  content_html: z.string().optional(),
-  category: z.string().max(100).optional(),
   is_shared: z.boolean().default(true),
 });
 
 export const cannedResponsesRouter = createTRPCRouter({
   list: protectedProcedure
     .input(z.object({ category: z.string().optional() }))
-    .query(async ({ ctx, input }) => {
+    .query(async ({ ctx }) => {
       const orgId = ctx.session.user.organizationId;
       return ctx.prisma.hdCannedResponse.findMany({
         where: {
           organization_id: orgId,
-          ...(input.category ? { category: input.category } : {}),
         },
-        orderBy: [{ usage_count: 'desc' }, { name: 'asc' }],
+        orderBy: [{ name: 'asc' }],
       });
     }),
 
@@ -35,7 +31,7 @@ export const cannedResponsesRouter = createTRPCRouter({
           organization_id: orgId,
           shortcut: { contains: input.q, mode: 'insensitive' },
         },
-        orderBy: { usage_count: 'desc' },
+        orderBy: { name: 'asc' },
         take: 10,
       });
     }),
@@ -59,8 +55,6 @@ export const cannedResponsesRouter = createTRPCRouter({
           name: input.name,
           shortcut: input.shortcut,
           content: input.content,
-          content_html: input.content_html ?? null,
-          category: input.category ?? null,
           is_shared: input.is_shared,
         },
       });
@@ -86,8 +80,6 @@ export const cannedResponsesRouter = createTRPCRouter({
           name: rest.name,
           shortcut: rest.shortcut,
           content: rest.content,
-          content_html: rest.content_html ?? null,
-          category: rest.category ?? null,
           is_shared: rest.is_shared,
         },
       });
@@ -102,23 +94,17 @@ export const cannedResponsesRouter = createTRPCRouter({
       return ctx.prisma.hdCannedResponse.delete({ where: { id: input.id } });
     }),
 
+  // No usage_count in schema — kept as no-op for API compatibility
   incrementUsage: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.prisma.hdCannedResponse.update({
-        where: { id: input.id },
-        data: { usage_count: { increment: 1 } },
-      });
+      const existing = await ctx.prisma.hdCannedResponse.findFirst({ where: { id: input.id } });
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Canned response not found' });
+      return existing;
     }),
 
-  listCategories: protectedProcedure.query(async ({ ctx }) => {
-    const orgId = ctx.session.user.organizationId;
-    const results = await ctx.prisma.hdCannedResponse.findMany({
-      where: { organization_id: orgId, category: { not: null } },
-      select: { category: true },
-      distinct: ['category'],
-      orderBy: { category: 'asc' },
-    });
-    return results.map((r) => r.category).filter(Boolean);
+  // No category field in schema — return empty array
+  listCategories: protectedProcedure.query(async () => {
+    return [] as string[];
   }),
 });
