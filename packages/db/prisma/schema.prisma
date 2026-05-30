@@ -2743,8 +2743,7 @@ model HrOnboardingTask {
 // =============================================================================
 // Accounting v2 — New models and enums
 // Doc: 05_ACCOUNTING_v2.md
-// All models use Acc prefix. Original non-prefixed models remain in schema.prisma.
-// organization_id normalized (org_id → organization_id).
+// All models use Acc prefix. Uses org_id (String, cuid) per v2 spec.
 // =============================================================================
 
 // ---------------------------------------------------------------------------
@@ -2757,6 +2756,8 @@ enum AccAccountType {
   equity
   revenue
   expense
+  contra_asset
+  contra_liability
 }
 
 enum AccNormalBalance {
@@ -2767,7 +2768,8 @@ enum AccNormalBalance {
 enum AccJournalStatus {
   draft
   posted
-  voided
+  reversed
+  void
 }
 
 enum AccJournalSource {
@@ -2777,80 +2779,85 @@ enum AccJournalSource {
   bill
   expense
   payroll
-  bank_import
-  recurring
   depreciation
+  bank_reconciliation
+  opening_balance
+  adjustment
+  other
 }
 
 enum AccInvoiceStatus {
   draft
   sent
-  partial
+  viewed
+  partially_paid
   paid
   overdue
-  voided
-  written_off
+  void
+  credit_note
 }
 
 enum AccInvoiceType {
   standard
+  proforma
   credit_note
   debit_note
-  proforma
+  recurring
 }
 
 enum AccPaymentTerms {
-  due_on_receipt
-  net_7
+  immediate
   net_15
   net_30
+  net_45
   net_60
   net_90
   custom
 }
 
 enum AccPaymentType {
-  invoice_payment
+  customer_payment
+  vendor_payment
   advance
   refund
-  credit_note_application
 }
 
 enum AccPaymentMethod {
-  bank_transfer
   cash
+  bank_transfer
   cheque
-  credit_card
   upi
-  online
+  card
+  neft
+  rtgs
+  imps
   other
 }
 
 enum AccBillStatus {
   draft
-  received
-  partial
+  pending
+  approved
+  partially_paid
   paid
   overdue
-  voided
+  void
 }
 
 enum AccTaxType {
   gst
-  igst
-  cgst
-  sgst
   vat
-  sales_tax
+  service_tax
   custom
+  none
 }
 
 enum AccBankAccountType {
-  checking
   savings
+  current
+  overdraft
+  fixed_deposit
   credit_card
-  loan
-  investment
 }
 
 enum AccBankTransactionType {
@@ -2859,17 +2866,20 @@ enum AccBankTransactionType {
 }
 
 enum AccBankTransactionStatus {
-  unreconciled
-  reconciled
+  unmatched
+  matched
+  ignored
   excluded
 }
 
 enum AccRecurringFrequency {
   daily
   weekly
+  bi_weekly
   monthly
   quarterly
-  yearly
+  half_yearly
+  annually
 }
 
 enum AccRecurringStatus {
@@ -2884,32 +2894,31 @@ enum AccExpenseApprovalStatus {
   submitted
   approved
   rejected
-  paid
+  reimbursed
 }
 
 enum AccExpensePaymentMethod {
-  cash
-  corporate_card
-  personal_card
-  bank_transfer
+  company_card
+  personal
+  petty_cash
   other
 }
 
 enum AccDepreciationMethod {
   straight_line
   declining_balance
-  units_of_production
+  sum_of_years
 }
 
 enum AccBudgetStatus {
   draft
   active
-  closed
+  archived
 }
 
 enum AccDiscountType {
   percent
-  fixed
+  amount
 }
 
 // ---------------------------------------------------------------------------
@@ -2917,465 +2926,590 @@ enum AccDiscountType {
 // ---------------------------------------------------------------------------
 
 model AccChartOfAccount {
-  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organization_id String           @db.Uuid
-  code            String           @db.VarChar(20)
-  name            String           @db.VarChar(255)
-  account_type    AccAccountType
-  normal_balance  AccNormalBalance
-  parent_id       String?          @db.Uuid
-  description     String?          @db.Text
-  is_active       Boolean          @default(true)
-  is_system       Boolean          @default(false)
-  created_at      DateTime         @default(now())
-  updated_at      DateTime         @updatedAt
-  deleted_at      DateTime?
+  id                String           @id @default(cuid())
+  org_id            String
+  code              String           @db.VarChar(20)
+  name              String           @db.VarChar(255)
+  account_type      AccAccountType
+  account_sub_type  String?          @db.VarChar(100)
 
-  parent                    AccChartOfAccount?    @relation("AccountHierarchy", fields: [parent_id], references: [id])
-  children                  AccChartOfAccount[]   @relation("AccountHierarchy")
-  journal_lines             AccJournalEntryLine[]
-  fixed_assets_as_asset     AccFixedAsset[]       @relation("AssetAccount")
-  fixed_assets_as_accum_dep AccFixedAsset[]       @relation("AccumDepAccount")
-  fixed_assets_as_dep_exp   AccFixedAsset[]       @relation("DepExpAccount")
+  parent_account_id String?
+  parent_account    AccChartOfAccount?  @relation("COAHierarchy", fields: [parent_account_id], references: [id])
+  child_accounts    AccChartOfAccount[] @relation("COAHierarchy")
 
-  @@unique([organization_id, code])
-  @@index([organization_id])
-  @@index([parent_id])
+  level             Int              @default(1)
+  is_system         Boolean          @default(false)
+  description       String?          @db.Text
+  currency          String           @default("USD") @db.VarChar(3)
+  opening_balance   Decimal          @default(0) @db.Decimal(15, 4)
+  current_balance   Decimal          @default(0) @db.Decimal(15, 4)
+  normal_balance    AccNormalBalance
+  is_active         Boolean          @default(true)
+  deleted_at        DateTime?
+
+  created_at        DateTime         @default(now())
+  updated_at        DateTime         @updatedAt
+
+  journal_lines     AccJournalEntryLine[]
+  bank_accounts     AccBankAccount[]
+  tax_accounts      AccTax[]
+  asset_accounts    AccFixedAsset[]    @relation("AssetAccount")
+  accum_dep_accounts AccFixedAsset[]  @relation("AccumDepAccount")
+  dep_exp_accounts  AccFixedAsset[]   @relation("DepExpAccount")
+  budget_lines      AccBudgetLine[]
+  invoice_lines     AccInvoiceLine[]
+  bill_lines        AccBillLine[]
+
+  @@unique([org_id, code])
+  @@index([org_id, account_type, is_active])
   @@map("acc_chart_of_accounts")
 }
 
 model AccFinancialPeriod {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organization_id String    @db.Uuid
-  name            String    @db.VarChar(100)
-  start_date      DateTime  @db.Date
-  end_date        DateTime  @db.Date
-  is_closed       Boolean   @default(false)
-  closed_at       DateTime?
-  closed_by       String?   @db.Uuid
-  created_at      DateTime  @default(now())
-  deleted_at      DateTime?
+  id         String    @id @default(cuid())
+  org_id     String
+  year       Int
+  month      Int
+  start_date DateTime  @db.Date
+  end_date   DateTime  @db.Date
+  is_locked  Boolean   @default(false)
+  locked_by  String?   @db.VarChar(36)
+  locked_at  DateTime?
+  created_at DateTime  @default(now())
 
-  @@index([organization_id])
+  @@unique([org_id, year, month])
+  @@index([org_id, year])
   @@map("acc_financial_periods")
 }
 
 model AccJournalEntry {
-  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organization_id String           @db.Uuid
-  journal_number  String           @db.VarChar(50)
-  date            DateTime         @db.Date
-  description     String?          @db.Text
-  reference       String?          @db.VarChar(255)
-  status          AccJournalStatus @default(draft)
-  source          AccJournalSource @default(manual)
-  source_id       String?          @db.Uuid
-  created_by      String           @db.Uuid
-  posted_at       DateTime?
-  voided_at       DateTime?
-  voided_by       String?          @db.Uuid
-  created_at      DateTime         @default(now())
-  updated_at      DateTime         @updatedAt
-  deleted_at      DateTime?
+  id                  String             @id @default(cuid())
+  org_id              String
+  entry_number        String             @db.VarChar(50)
+  entry_date          DateTime           @db.Date
+  reference           String?            @db.VarChar(255)
+  description         String             @db.Text
+  source_type         AccJournalSource   @default(manual)
+  source_id           String?            @db.VarChar(36)
+  currency            String?            @db.VarChar(3)
+  exchange_rate       Decimal            @default(1) @db.Decimal(12, 8)
+  status              AccJournalStatus   @default(draft)
+  posted_at           DateTime?
+  posted_by           String?            @db.VarChar(36)
 
-  lines AccJournalEntryLine[]
+  reversed_entry_id   String?
+  reversed_entry      AccJournalEntry?   @relation("JEReversals", fields: [reversed_entry_id], references: [id])
+  reversal_of         AccJournalEntry[]  @relation("JEReversals")
 
-  @@unique([organization_id, journal_number])
-  @@index([organization_id])
-  @@index([date])
+  reversal_date       DateTime?          @db.Date
+  period_locked       Boolean            @default(false)
+  financial_year      Int?
+  financial_period    Int?
+  total_debit         Decimal?           @db.Decimal(15, 4)
+  total_credit        Decimal?           @db.Decimal(15, 4)
+
+  created_by          String?            @db.VarChar(36)
+  created_at          DateTime           @default(now())
+  updated_at          DateTime           @updatedAt
+
+  lines               AccJournalEntryLine[]
+  invoices            AccInvoice[]
+  bills               AccBill[]
+  payments            AccPayment[]
+  expenses            AccExpense[]
+
+  @@unique([org_id, entry_number])
+  @@index([org_id, entry_date, status])
+  @@index([source_type, source_id])
   @@map("acc_journal_entries")
 }
 
 model AccJournalEntryLine {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  entry_id    String   @db.Uuid
-  account_id  String   @db.Uuid
-  description String?  @db.Text
-  debit       Decimal  @default(0) @db.Decimal(15, 4)
-  credit      Decimal  @default(0) @db.Decimal(15, 4)
-  currency    String   @default("USD") @db.VarChar(3)
-  created_at  DateTime @default(now())
+  id                   String            @id @default(cuid())
+  journal_entry_id     String
+  journal_entry        AccJournalEntry   @relation(fields: [journal_entry_id], references: [id], onDelete: Cascade)
+  account_id           String
+  account              AccChartOfAccount @relation(fields: [account_id], references: [id])
+  description          String?           @db.VarChar(500)
+  debit_amount         Decimal           @default(0) @db.Decimal(15, 4)
+  credit_amount        Decimal           @default(0) @db.Decimal(15, 4)
+  currency             String?           @db.VarChar(3)
+  exchange_rate        Decimal           @default(1) @db.Decimal(12, 8)
+  base_debit           Decimal?          @db.Decimal(15, 4)
+  base_credit          Decimal?          @db.Decimal(15, 4)
+  contact_id           String?           @db.VarChar(36)
+  cost_center_id       String?           @db.VarChar(36)
+  project_id           String?           @db.VarChar(36)
+  tax_id               String?           @db.VarChar(36)
+  tax_amount           Decimal           @default(0) @db.Decimal(15, 4)
+  reconciled           Boolean           @default(false)
+  reconciled_at        DateTime?
+  bank_transaction_id  String?           @db.VarChar(36)
+  line_order           Int
+  created_at           DateTime          @default(now())
 
-  entry   AccJournalEntry   @relation(fields: [entry_id], references: [id], onDelete: Cascade)
-  account AccChartOfAccount @relation(fields: [account_id], references: [id])
+  bank_transactions    AccBankTransaction[]
 
-  @@index([entry_id])
-  @@index([account_id])
+  @@index([journal_entry_id])
+  @@index([account_id, reconciled])
   @@map("acc_journal_entry_lines")
 }
 
 model AccTax {
-  id              String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organization_id String     @db.Uuid
-  name            String     @db.VarChar(100)
-  tax_type        AccTaxType
-  rate            Decimal    @db.Decimal(5, 2)
-  description     String?    @db.Text
-  is_compound     Boolean    @default(false)
-  is_active       Boolean    @default(true)
-  created_at      DateTime   @default(now())
-  updated_at      DateTime   @updatedAt
-  deleted_at      DateTime?
+  id             String            @id @default(cuid())
+  org_id         String
+  name           String            @db.VarChar(100)
+  type           AccTaxType        @default(gst)
+  rate           Decimal           @db.Decimal(6, 4)
+  components     Json?
+  tax_account_id String?
+  tax_account    AccChartOfAccount? @relation(fields: [tax_account_id], references: [id])
+  is_active      Boolean           @default(true)
+  is_default     Boolean           @default(false)
+  created_at     DateTime          @default(now())
 
-  @@index([organization_id])
+  invoice_lines  AccInvoiceLine[]
+  bill_lines     AccBillLine[]
+
+  @@index([org_id, is_active])
   @@map("acc_taxes")
 }
 
 model AccVendor {
-  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organization_id String          @db.Uuid
-  name            String          @db.VarChar(255)
-  email           String?         @db.VarChar(255)
-  phone           String?         @db.VarChar(50)
-  address         Json?
-  tax_number      String?         @db.VarChar(50)
-  currency        String          @default("USD") @db.VarChar(3)
-  payment_terms   AccPaymentTerms @default(net_30)
-  is_active       Boolean         @default(true)
-  created_at      DateTime        @default(now())
-  updated_at      DateTime        @updatedAt
-  deleted_at      DateTime?
+  id                  String          @id @default(cuid())
+  org_id              String
+  name                String          @db.VarChar(255)
+  vendor_code         String?         @db.VarChar(50)
+  email               String?         @db.VarChar(255)
+  phone               String?         @db.VarChar(30)
+  billing_address     Json?
+  shipping_address    Json?
+  gstin               String?         @db.VarChar(15)
+  pan                 String?         @db.VarChar(10)
+  payment_terms       AccPaymentTerms?
+  currency            String?         @db.VarChar(3)
+  bank_account_number String?         @db.VarChar(50)
+  bank_ifsc           String?         @db.VarChar(20)
+  bank_name           String?         @db.VarChar(100)
+  credit_limit        Decimal?        @db.Decimal(15, 2)
+  outstanding_balance Decimal         @default(0) @db.Decimal(15, 4)
+  tags                String[]
+  notes               String?         @db.Text
+  is_active           Boolean         @default(true)
+  tds_applicable      Boolean         @default(false)
+  tds_section         String?         @db.VarChar(20)
+  tds_rate            Decimal?        @db.Decimal(5, 4)
+  deleted_at          DateTime?
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
 
-  bills AccBill[]
+  bills               AccBill[]
+  fixed_assets        AccFixedAsset[]
+  expenses            AccExpense[]
 
-  @@index([organization_id])
+  @@unique([org_id, vendor_code])
+  @@index([org_id, is_active])
   @@map("acc_vendors")
 }
 
 model AccInvoice {
-  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organization_id String           @db.Uuid
-  invoice_number  String           @db.VarChar(50)
-  invoice_type    AccInvoiceType   @default(standard)
-  status          AccInvoiceStatus @default(draft)
-  contact_id      String?          @db.Uuid
-  contact_name    String?          @db.VarChar(255)
-  issue_date      DateTime         @db.Date
-  due_date        DateTime?        @db.Date
-  payment_terms   AccPaymentTerms  @default(net_30)
-  currency        String           @default("USD") @db.VarChar(3)
-  subtotal        Decimal          @default(0) @db.Decimal(15, 4)
-  discount_total  Decimal          @default(0) @db.Decimal(15, 4)
-  tax_total       Decimal          @default(0) @db.Decimal(15, 4)
-  total           Decimal          @default(0) @db.Decimal(15, 4)
-  paid_amount     Decimal          @default(0) @db.Decimal(15, 4)
-  balance_due     Decimal          @default(0) @db.Decimal(15, 4)
-  notes           String?          @db.Text
-  terms           String?          @db.Text
-  created_by      String           @db.Uuid
-  sent_at         DateTime?
-  paid_at         DateTime?
-  voided_at       DateTime?
-  created_at      DateTime         @default(now())
-  updated_at      DateTime         @updatedAt
-  deleted_at      DateTime?
+  id                       String           @id @default(cuid())
+  org_id                   String
+  invoice_number           String           @db.VarChar(50)
+  invoice_type             AccInvoiceType   @default(standard)
+  original_invoice_id      String?
+  original_invoice         AccInvoice?      @relation("CreditDebitNotes", fields: [original_invoice_id], references: [id])
+  credit_debit_notes       AccInvoice[]     @relation("CreditDebitNotes")
 
-  lines    AccInvoiceLine[]
-  payments AccPayment[]
+  contact_id               String?          @db.VarChar(36)
+  contact_billing_address  Json?
+  contact_shipping_address Json?
+  purchase_order_number    String?          @db.VarChar(100)
+  invoice_date             DateTime         @db.Date
+  due_date                 DateTime?        @db.Date
+  currency                 String           @default("INR") @db.VarChar(3)
+  exchange_rate            Decimal          @default(1) @db.Decimal(12, 8)
 
-  @@unique([organization_id, invoice_number])
-  @@index([organization_id])
-  @@index([status])
-  @@index([contact_id])
+  status                   AccInvoiceStatus @default(draft)
+  subtotal                 Decimal          @default(0) @db.Decimal(15, 4)
+  discount_type            AccDiscountType?
+  discount_value           Decimal          @default(0) @db.Decimal(15, 4)
+  discount_amount          Decimal          @default(0) @db.Decimal(15, 4)
+  taxable_amount           Decimal          @default(0) @db.Decimal(15, 4)
+  tax_total                Decimal          @default(0) @db.Decimal(15, 4)
+  grand_total              Decimal          @default(0) @db.Decimal(15, 4)
+  amount_paid              Decimal          @default(0) @db.Decimal(15, 4)
+  balance_due              Decimal          @default(0) @db.Decimal(15, 4)
+  notes                    String?          @db.Text
+  terms                    String?          @db.Text
+  custom_fields            Json?
+  payment_terms            AccPaymentTerms  @default(net_30)
+  payment_due_days         Int              @default(30)
+  sent_at                  DateTime?
+  viewed_at                DateTime?
+  view_count               Int              @default(0)
+
+  recurring_config_id      String?
+  recurring_config         AccRecurringInvoice? @relation(fields: [recurring_config_id], references: [id])
+
+  payment_link_url         String?          @db.VarChar(500)
+  payment_link_expires_at  DateTime?
+
+  journal_entry_id         String?
+  journal_entry            AccJournalEntry? @relation(fields: [journal_entry_id], references: [id])
+
+  financial_year           Int?
+  financial_period         Int?
+
+  e_invoice_irn            String?          @db.VarChar(100)
+  e_invoice_qr             String?          @db.Text
+  pdf_url                  String?          @db.VarChar(500)
+
+  created_by               String?          @db.VarChar(36)
+  created_at               DateTime         @default(now())
+  updated_at               DateTime         @updatedAt
+
+  lines                    AccInvoiceLine[]
+  payments                 AccPayment[]
+
+  @@unique([org_id, invoice_number])
+  @@index([org_id, invoice_date, status])
+  @@index([org_id, contact_id])
+  @@index([org_id, due_date, status])
   @@map("acc_invoices")
 }
 
 model AccInvoiceLine {
-  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  invoice_id    String          @db.Uuid
-  description   String          @db.VarChar(500)
-  quantity      Decimal         @default(1) @db.Decimal(10, 4)
-  unit_price    Decimal         @db.Decimal(15, 4)
-  discount      Decimal         @default(0) @db.Decimal(15, 4)
-  discount_type AccDiscountType @default(percent)
-  tax_amount    Decimal         @default(0) @db.Decimal(15, 4)
-  total         Decimal         @db.Decimal(15, 4)
-  account_id    String?         @db.Uuid
-  position      Int             @default(0)
-  created_at    DateTime        @default(now())
-
-  invoice AccInvoice @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+  id              String             @id @default(cuid())
+  invoice_id      String
+  invoice         AccInvoice         @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+  product_id      String?            @db.VarChar(36)
+  description     String             @db.VarChar(1000)
+  quantity        Decimal            @db.Decimal(10, 4)
+  unit            String?            @db.VarChar(50)
+  unit_price      Decimal            @db.Decimal(15, 4)
+  discount_type   AccDiscountType?
+  discount_value  Decimal            @default(0) @db.Decimal(15, 4)
+  discount_amount Decimal            @default(0) @db.Decimal(15, 4)
+  taxable_amount  Decimal            @default(0) @db.Decimal(15, 4)
+  tax_id          String?
+  tax             AccTax?            @relation(fields: [tax_id], references: [id])
+  tax_rate        Decimal            @default(0) @db.Decimal(6, 4)
+  tax_amount      Decimal            @default(0) @db.Decimal(15, 4)
+  line_total      Decimal            @db.Decimal(15, 4)
+  hsn_sac_code    String?            @db.VarChar(20)
+  account_id      String?
+  account         AccChartOfAccount? @relation(fields: [account_id], references: [id])
+  project_id      String?            @db.VarChar(36)
+  position        Int
+  created_at      DateTime           @default(now())
 
   @@index([invoice_id])
   @@map("acc_invoice_lines")
 }
 
 model AccPayment {
-  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organization_id String           @db.Uuid
-  invoice_id      String?          @db.Uuid
-  bill_id         String?          @db.Uuid
-  payment_type    AccPaymentType   @default(invoice_payment)
-  payment_method  AccPaymentMethod @default(bank_transfer)
-  amount          Decimal          @db.Decimal(15, 4)
-  currency        String           @default("USD") @db.VarChar(3)
-  reference       String?          @db.VarChar(255)
-  payment_date    DateTime         @db.Date
-  bank_account_id String?          @db.Uuid
-  notes           String?          @db.Text
-  created_by      String           @db.Uuid
-  created_at      DateTime         @default(now())
-  updated_at      DateTime         @updatedAt
-  deleted_at      DateTime?
+  id                 String           @id @default(cuid())
+  org_id             String
+  payment_number     String           @db.VarChar(50)
+  payment_date       DateTime         @db.Date
+  contact_id         String?          @db.VarChar(36)
+  payment_type       AccPaymentType   @default(customer_payment)
+  payment_method     AccPaymentMethod @default(bank_transfer)
+  amount             Decimal          @db.Decimal(15, 4)
+  currency           String           @db.VarChar(3)
+  exchange_rate      Decimal          @default(1) @db.Decimal(12, 8)
+  reference_number   String?          @db.VarChar(100)
+  bank_account_id    String
+  bank_account       AccBankAccount   @relation(fields: [bank_account_id], references: [id])
+  notes              String?          @db.Text
+  gateway_payment_id String?          @db.VarChar(255)
+  allocations        Json?
+  journal_entry_id   String?
+  journal_entry      AccJournalEntry? @relation(fields: [journal_entry_id], references: [id])
+  invoice_id         String?
+  invoice            AccInvoice?      @relation(fields: [invoice_id], references: [id])
 
-  invoice AccInvoice? @relation(fields: [invoice_id], references: [id])
-  bill    AccBill?    @relation(fields: [bill_id], references: [id])
+  created_by         String?          @db.VarChar(36)
+  created_at         DateTime         @default(now())
+  updated_at         DateTime         @updatedAt
 
-  @@index([organization_id])
-  @@index([invoice_id])
-  @@index([bill_id])
+  bank_transactions  AccBankTransaction[]
+
+  @@unique([org_id, payment_number])
+  @@index([org_id, payment_date])
+  @@index([contact_id])
   @@map("acc_payments")
 }
 
 model AccBill {
-  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organization_id String          @db.Uuid
-  bill_number     String          @db.VarChar(50)
-  vendor_id       String?         @db.Uuid
-  status          AccBillStatus   @default(draft)
-  issue_date      DateTime        @db.Date
-  due_date        DateTime?       @db.Date
-  payment_terms   AccPaymentTerms @default(net_30)
-  currency        String          @default("USD") @db.VarChar(3)
-  subtotal        Decimal         @default(0) @db.Decimal(15, 4)
-  tax_total       Decimal         @default(0) @db.Decimal(15, 4)
-  total           Decimal         @default(0) @db.Decimal(15, 4)
-  paid_amount     Decimal         @default(0) @db.Decimal(15, 4)
-  balance_due     Decimal         @default(0) @db.Decimal(15, 4)
-  notes           String?         @db.Text
-  created_by      String          @db.Uuid
-  paid_at         DateTime?
-  voided_at       DateTime?
-  created_at      DateTime        @default(now())
-  updated_at      DateTime        @updatedAt
-  deleted_at      DateTime?
+  id                    String          @id @default(cuid())
+  org_id                String
+  bill_number           String          @db.VarChar(100)
+  vendor_id             String
+  vendor                AccVendor       @relation(fields: [vendor_id], references: [id])
+  vendor_invoice_number String?         @db.VarChar(100)
+  bill_date             DateTime        @db.Date
+  due_date              DateTime?       @db.Date
+  currency              String?         @db.VarChar(3)
+  exchange_rate         Decimal?        @db.Decimal(12, 8)
+  subtotal              Decimal         @db.Decimal(15, 4)
+  tax_total             Decimal         @default(0) @db.Decimal(15, 4)
+  grand_total           Decimal         @db.Decimal(15, 4)
+  amount_paid           Decimal         @default(0) @db.Decimal(15, 4)
+  balance_due           Decimal         @db.Decimal(15, 4)
+  status                AccBillStatus   @default(draft)
+  purchase_order_id     String?         @db.VarChar(36)
+  notes                 String?         @db.Text
+  payment_terms         AccPaymentTerms?
+  journal_entry_id      String?
+  journal_entry         AccJournalEntry? @relation(fields: [journal_entry_id], references: [id])
+  created_by            String?         @db.VarChar(36)
+  created_at            DateTime        @default(now())
+  updated_at            DateTime        @updatedAt
 
-  vendor   AccVendor?    @relation(fields: [vendor_id], references: [id])
-  lines    AccBillLine[]
-  payments AccPayment[]
+  lines                 AccBillLine[]
 
-  @@unique([organization_id, bill_number])
-  @@index([organization_id])
-  @@index([vendor_id])
+  @@unique([org_id, bill_number])
+  @@index([org_id, bill_date, status])
+  @@index([vendor_id, status])
   @@map("acc_bills")
 }
 
 model AccBillLine {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  bill_id     String   @db.Uuid
-  description String   @db.VarChar(500)
-  quantity    Decimal  @default(1) @db.Decimal(10, 4)
-  unit_price  Decimal  @db.Decimal(15, 4)
-  tax_amount  Decimal  @default(0) @db.Decimal(15, 4)
-  total       Decimal  @db.Decimal(15, 4)
-  account_id  String?  @db.Uuid
-  position    Int      @default(0)
-  created_at  DateTime @default(now())
-
-  bill AccBill @relation(fields: [bill_id], references: [id], onDelete: Cascade)
+  id           String             @id @default(cuid())
+  bill_id      String
+  bill         AccBill            @relation(fields: [bill_id], references: [id], onDelete: Cascade)
+  description  String             @db.VarChar(1000)
+  quantity     Decimal            @db.Decimal(10, 4)
+  unit_price   Decimal            @db.Decimal(15, 4)
+  tax_id       String?
+  tax          AccTax?            @relation(fields: [tax_id], references: [id])
+  tax_rate     Decimal            @default(0) @db.Decimal(6, 4)
+  tax_amount   Decimal            @default(0) @db.Decimal(15, 4)
+  line_total   Decimal            @db.Decimal(15, 4)
+  account_id   String
+  account      AccChartOfAccount  @relation(fields: [account_id], references: [id])
+  hsn_sac_code String?            @db.VarChar(20)
+  position     Int
+  created_at   DateTime           @default(now())
 
   @@index([bill_id])
   @@map("acc_bill_lines")
 }
 
 model AccBankAccount {
-  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organization_id String             @db.Uuid
-  name            String             @db.VarChar(255)
-  account_type    AccBankAccountType @default(checking)
-  bank_name       String?            @db.VarChar(255)
-  account_number  String?            @db.VarChar(50)
-  ifsc_code       String?            @db.VarChar(20)
-  currency        String             @default("USD") @db.VarChar(3)
-  opening_balance Decimal            @default(0) @db.Decimal(15, 4)
-  current_balance Decimal            @default(0) @db.Decimal(15, 4)
-  is_active       Boolean            @default(true)
-  created_at      DateTime           @default(now())
-  updated_at      DateTime           @updatedAt
-  deleted_at      DateTime?
+  id                    String             @id @default(cuid())
+  org_id                String
+  name                  String             @db.VarChar(200)
+  account_number        String?            @db.VarChar(50)
+  bank_name             String?            @db.VarChar(100)
+  bank_branch           String?            @db.VarChar(200)
+  ifsc_code             String?            @db.VarChar(20)
+  account_type          AccBankAccountType @default(current)
+  currency              String             @default("INR") @db.VarChar(3)
+  opening_balance       Decimal            @default(0) @db.Decimal(15, 4)
+  current_balance       Decimal            @default(0) @db.Decimal(15, 4)
+  last_reconciled_date  DateTime?          @db.Date
+  gl_account_id         String?
+  gl_account            AccChartOfAccount? @relation(fields: [gl_account_id], references: [id])
+  is_active             Boolean            @default(true)
+  created_at            DateTime           @default(now())
+  updated_at            DateTime           @updatedAt
 
-  transactions AccBankTransaction[]
+  transactions          AccBankTransaction[]
+  payments              AccPayment[]
 
-  @@index([organization_id])
+  @@index([org_id, is_active])
   @@map("acc_bank_accounts")
 }
 
 model AccBankTransaction {
-  id                  String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organization_id     String                   @db.Uuid
-  bank_account_id     String                   @db.Uuid
-  transaction_type    AccBankTransactionType
-  amount              Decimal                  @db.Decimal(15, 4)
-  balance_after       Decimal                  @db.Decimal(15, 4)
-  date                DateTime                 @db.Date
-  description         String?                  @db.Text
-  reference           String?                  @db.VarChar(255)
-  status              AccBankTransactionStatus @default(unreconciled)
-  reconciled_entry_id String?                  @db.Uuid
-  reconciled_at       DateTime?
-  created_at          DateTime                 @default(now())
-  updated_at          DateTime                 @updatedAt
+  id                    String                   @id @default(cuid())
+  bank_account_id       String
+  bank_account          AccBankAccount           @relation(fields: [bank_account_id], references: [id])
+  transaction_date      DateTime                 @db.Date
+  value_date            DateTime?                @db.Date
+  description           String?                  @db.VarChar(500)
+  reference             String?                  @db.VarChar(200)
+  amount                Decimal                  @db.Decimal(15, 4)
+  type                  AccBankTransactionType
+  running_balance       Decimal?                 @db.Decimal(15, 4)
+  status                AccBankTransactionStatus @default(unmatched)
+  journal_entry_line_id String?
+  journal_entry_line    AccJournalEntryLine?     @relation(fields: [journal_entry_line_id], references: [id])
+  payment_id            String?
+  payment               AccPayment?              @relation(fields: [payment_id], references: [id])
+  import_batch_id       String?                  @db.VarChar(36)
+  created_at            DateTime                 @default(now())
 
-  bank_account AccBankAccount @relation(fields: [bank_account_id], references: [id])
-
-  @@index([organization_id])
-  @@index([bank_account_id])
-  @@index([status])
+  @@index([bank_account_id, transaction_date])
+  @@index([status, bank_account_id])
   @@map("acc_bank_transactions")
 }
 
 model AccRecurringInvoice {
-  id              String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organization_id String                @db.Uuid
-  name            String                @db.VarChar(255)
-  contact_id      String?               @db.Uuid
-  frequency       AccRecurringFrequency @default(monthly)
-  start_date      DateTime              @db.Date
-  end_date        DateTime?             @db.Date
-  next_run_date   DateTime?             @db.Date
-  last_run_date   DateTime?             @db.Date
-  status          AccRecurringStatus    @default(active)
-  template        Json
-  created_by      String                @db.Uuid
-  created_at      DateTime              @default(now())
-  updated_at      DateTime              @updatedAt
-  deleted_at      DateTime?
+  id                    String                @id @default(cuid())
+  org_id                String
+  name                  String                @db.VarChar(200)
+  contact_id            String?               @db.VarChar(36)
+  frequency             AccRecurringFrequency
+  day_of_month          Int?
+  next_invoice_date     DateTime?             @db.Date
+  end_date              DateTime?             @db.Date
+  occurrences_limit     Int?
+  occurrences_generated Int                   @default(0)
+  auto_send             Boolean               @default(true)
+  auto_approve          Boolean               @default(false)
+  status                AccRecurringStatus    @default(active)
+  last_generated_at     DateTime?
+  created_by            String?               @db.VarChar(36)
+  created_at            DateTime              @default(now())
+  updated_at            DateTime              @updatedAt
 
-  @@index([organization_id])
-  @@index([status, next_run_date])
+  invoices              AccInvoice[]
+
+  @@index([org_id, status, next_invoice_date])
   @@map("acc_recurring_invoices")
 }
 
 model AccExpense {
-  id              String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organization_id String                   @db.Uuid
-  employee_id     String?                  @db.Uuid
-  category_id     String?                  @db.Uuid
-  amount          Decimal                  @db.Decimal(15, 4)
-  currency        String                   @default("USD") @db.VarChar(3)
-  expense_date    DateTime                 @db.Date
-  description     String?                  @db.Text
-  receipt_url     String?                  @db.VarChar(500)
-  payment_method  AccExpensePaymentMethod  @default(personal_card)
-  status          AccExpenseApprovalStatus @default(draft)
-  approver_id     String?                  @db.Uuid
-  approved_at     DateTime?
-  rejected_reason String?                  @db.Text
-  reimbursed_at   DateTime?
-  tax_amount      Decimal                  @default(0) @db.Decimal(15, 4)
-  billable        Boolean                  @default(false)
-  created_by      String                   @db.Uuid
-  created_at      DateTime                 @default(now())
-  updated_at      DateTime                 @updatedAt
-  deleted_at      DateTime?
+  id                 String                   @id @default(cuid())
+  org_id             String
+  expense_number     String?                  @db.VarChar(50)
+  vendor_id          String?
+  vendor             AccVendor?               @relation(fields: [vendor_id], references: [id])
+  expense_account_id String
+  expense_date       DateTime                 @db.Date
+  description        String?                  @db.VarChar(500)
+  receipt_url        String?                  @db.VarChar(500)
+  receipt_ocr_data   Json?
+  amount             Decimal                  @db.Decimal(15, 4)
+  currency           String?                  @db.VarChar(3)
+  tax_id             String?                  @db.VarChar(36)
+  tax_amount         Decimal                  @default(0) @db.Decimal(15, 4)
+  billable           Boolean                  @default(false)
+  billed             Boolean                  @default(false)
+  project_id         String?                  @db.VarChar(36)
+  contact_id         String?                  @db.VarChar(36)
+  employee_id        String?                  @db.VarChar(36)
+  payment_method     AccExpensePaymentMethod?
+  approval_status    AccExpenseApprovalStatus @default(draft)
+  approved_by        String?                  @db.VarChar(36)
+  approved_at        DateTime?
+  rejected_reason    String?                  @db.Text
+  journal_entry_id   String?
+  journal_entry      AccJournalEntry?         @relation(fields: [journal_entry_id], references: [id])
+  reimbursed_at      DateTime?
+  created_by         String?                  @db.VarChar(36)
+  created_at         DateTime                 @default(now())
+  updated_at         DateTime                 @updatedAt
 
-  @@index([organization_id])
-  @@index([employee_id])
-  @@index([status])
+  @@index([org_id, expense_date])
+  @@index([org_id, approval_status])
   @@map("acc_expenses")
 }
 
 model AccFixedAsset {
-  id                   String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organization_id      String                @db.Uuid
-  name                 String                @db.VarChar(255)
-  asset_code           String?               @db.VarChar(50)
-  category             String?               @db.VarChar(100)
-  purchase_date        DateTime              @db.Date
-  purchase_price       Decimal               @db.Decimal(15, 4)
-  salvage_value        Decimal               @default(0) @db.Decimal(15, 4)
-  useful_life_years    Decimal               @db.Decimal(5, 2)
-  depreciation_method  AccDepreciationMethod @default(straight_line)
-  asset_account_id     String?               @db.Uuid
-  accum_dep_account_id String?               @db.Uuid
-  dep_exp_account_id   String?               @db.Uuid
-  current_book_value   Decimal               @default(0) @db.Decimal(15, 4)
-  is_disposed          Boolean               @default(false)
-  disposed_at          DateTime?
-  disposal_amount      Decimal?              @db.Decimal(15, 4)
-  notes                String?               @db.Text
-  created_at           DateTime              @default(now())
-  updated_at           DateTime              @updatedAt
-  deleted_at           DateTime?
+  id                                   String                @id @default(cuid())
+  org_id                               String
+  name                                 String                @db.VarChar(255)
+  asset_code                           String?               @db.VarChar(50)
+  asset_category                       String?               @db.VarChar(100)
+  description                          String?               @db.Text
+  purchase_date                        DateTime              @db.Date
+  purchase_value                       Decimal               @db.Decimal(15, 4)
+  salvage_value                        Decimal               @default(0) @db.Decimal(15, 4)
+  useful_life_months                   Int
+  depreciation_method                  AccDepreciationMethod @default(straight_line)
+  asset_account_id                     String
+  asset_account                        AccChartOfAccount     @relation("AssetAccount", fields: [asset_account_id], references: [id])
+  accumulated_depreciation_account_id  String
+  accumulated_depreciation_account     AccChartOfAccount     @relation("AccumDepAccount", fields: [accumulated_depreciation_account_id], references: [id])
+  depreciation_expense_account_id      String
+  depreciation_expense_account         AccChartOfAccount     @relation("DepExpAccount", fields: [depreciation_expense_account_id], references: [id])
+  current_book_value                   Decimal?              @db.Decimal(15, 4)
+  disposed_at                          DateTime?
+  disposal_proceeds                    Decimal?              @db.Decimal(15, 4)
+  disposal_gain_loss                   Decimal?              @db.Decimal(15, 4)
+  vendor_id                            String?
+  vendor                               AccVendor?            @relation(fields: [vendor_id], references: [id])
+  invoice_id                           String?               @db.VarChar(36)
+  location                             String?               @db.VarChar(255)
+  custodian_employee_id                String?               @db.VarChar(36)
+  qr_code_url                          String?               @db.VarChar(500)
+  created_at                           DateTime              @default(now())
+  updated_at                           DateTime              @updatedAt
 
-  asset_account          AccChartOfAccount?        @relation("AssetAccount", fields: [asset_account_id], references: [id])
-  accum_dep_account      AccChartOfAccount?        @relation("AccumDepAccount", fields: [accum_dep_account_id], references: [id])
-  dep_exp_account        AccChartOfAccount?        @relation("DepExpAccount", fields: [dep_exp_account_id], references: [id])
-  depreciation_schedules AccDepreciationSchedule[]
+  depreciation_schedules               AccDepreciationSchedule[]
 
-  @@index([organization_id])
+  @@index([org_id, asset_category])
   @@map("acc_fixed_assets")
 }
 
 model AccDepreciationSchedule {
-  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  asset_id         String   @db.Uuid
-  period_date      DateTime @db.Date
-  amount           Decimal  @db.Decimal(15, 4)
-  book_value       Decimal  @db.Decimal(15, 4)
-  journal_entry_id String?  @db.Uuid
-  created_at       DateTime @default(now())
+  id               String        @id @default(cuid())
+  asset_id         String
+  asset            AccFixedAsset @relation(fields: [asset_id], references: [id])
+  period_year      Int
+  period_month     Int
+  depreciation     Decimal       @db.Decimal(15, 4)
+  book_value_after Decimal       @db.Decimal(15, 4)
+  journal_entry_id String?       @db.VarChar(36)
+  posted           Boolean       @default(false)
+  posted_at        DateTime?
+  created_at       DateTime      @default(now())
 
-  asset AccFixedAsset @relation(fields: [asset_id], references: [id], onDelete: Cascade)
-
-  @@index([asset_id])
+  @@unique([asset_id, period_year, period_month])
   @@map("acc_depreciation_schedules")
 }
 
 model AccBudget {
-  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organization_id String          @db.Uuid
-  name            String          @db.VarChar(255)
-  fiscal_year     Int
-  start_date      DateTime        @db.Date
-  end_date        DateTime        @db.Date
-  status          AccBudgetStatus @default(draft)
-  created_by      String          @db.Uuid
-  created_at      DateTime        @default(now())
-  updated_at      DateTime        @updatedAt
-  deleted_at      DateTime?
+  id             String           @id @default(cuid())
+  org_id         String
+  name           String           @db.VarChar(200)
+  financial_year Int
+  status         AccBudgetStatus  @default(draft)
+  created_by     String?          @db.VarChar(36)
+  created_at     DateTime         @default(now())
+  updated_at     DateTime         @updatedAt
 
-  lines AccBudgetLine[]
+  lines          AccBudgetLine[]
 
-  @@index([organization_id])
+  @@index([org_id, financial_year])
   @@map("acc_budgets")
 }
 
 model AccBudgetLine {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  budget_id    String   @db.Uuid
-  account_id   String?  @db.Uuid
-  period_month Int
-  period_year  Int
-  budgeted     Decimal  @db.Decimal(15, 4)
-  actual       Decimal  @default(0) @db.Decimal(15, 4)
-  created_at   DateTime @default(now())
-  updated_at   DateTime @updatedAt
+  id                  String            @id @default(cuid())
+  budget_id           String
+  budget              AccBudget         @relation(fields: [budget_id], references: [id], onDelete: Cascade)
+  account_id          String
+  account             AccChartOfAccount @relation(fields: [account_id], references: [id])
+  period_allocations  Json
+  total               Decimal           @db.Decimal(15, 4)
+  created_at          DateTime          @default(now())
+  updated_at          DateTime          @updatedAt
 
-  budget AccBudget @relation(fields: [budget_id], references: [id], onDelete: Cascade)
-
-  @@index([budget_id])
+  @@unique([budget_id, account_id])
   @@map("acc_budget_lines")
 }
 
 model AccCostCenter {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organization_id String    @db.Uuid
-  code            String    @db.VarChar(50)
-  name            String    @db.VarChar(255)
-  description     String?   @db.Text
-  parent_id       String?   @db.Uuid
-  is_active       Boolean   @default(true)
-  created_at      DateTime  @default(now())
-  updated_at      DateTime  @updatedAt
-  deleted_at      DateTime?
+  id          String         @id @default(cuid())
+  org_id      String
+  code        String         @db.VarChar(20)
+  name        String         @db.VarChar(200)
+  description String?        @db.Text
+  manager_id  String?        @db.VarChar(36)
+  parent_id   String?
+  parent      AccCostCenter? @relation("CCHierarchy", fields: [parent_id], references: [id])
+  children    AccCostCenter[] @relation("CCHierarchy")
+  is_active   Boolean        @default(true)
+  created_at  DateTime       @default(now())
 
-  parent   AccCostCenter?  @relation("CostCenterParent", fields: [parent_id], references: [id])
-  children AccCostCenter[] @relation("CostCenterParent")
-
-  @@unique([organization_id, code])
-  @@index([organization_id])
-  @@index([parent_id])
+  @@unique([org_id, code])
+  @@index([org_id, is_active])
   @@map("acc_cost_centers")
 }
 

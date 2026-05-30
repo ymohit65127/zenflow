@@ -1,0 +1,3 @@
+Contact: mailto:security@zenflow.io
+Preferred-Languages: en
+Policy: https://zenflow.io/security-policy

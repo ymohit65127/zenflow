@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "sonner";
 import { TRPCReactProvider } from "@/trpc/react";
+import { headers } from "next/headers";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -55,13 +56,15 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Read the per-request nonce injected by middleware for Next.js inline scripts
+  const nonce = (await headers()).get('x-nonce') ?? '';
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning nonce={nonce}>
       <body
         className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
       >

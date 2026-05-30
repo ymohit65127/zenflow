@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, Zap, Mail, Lock, ArrowRight } from "lucide-react";
 import { signIn } from "next-auth/react";
 import { toast } from "sonner";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
   const [form, setForm] = useState({ email: "", password: "" });
@@ -25,7 +26,14 @@ export default function LoginPage() {
       if (result?.error) {
         toast.error("Invalid email or password");
       } else {
-        router.push("/dashboard");
+        const callbackUrl = searchParams.get("callbackUrl");
+        const safeCallback =
+          callbackUrl?.startsWith("/") &&
+          !callbackUrl.startsWith("//") &&
+          !callbackUrl.includes(":")
+            ? callbackUrl
+            : "/dashboard";
+        router.push(safeCallback);
       }
     } catch {
       toast.error("Something went wrong. Please try again.");

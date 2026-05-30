@@ -3,6 +3,8 @@ import { createTRPCRouter, protectedProcedure } from "@/server/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
+import bcrypt from "bcryptjs";
+import { redis } from "@/lib/redis";
 
 // MFA stored in user fields: two_factor_secret, two_factor_enabled
 // Sessions use existing Session model: id, user_id, token, ip_address, user_agent, expires_at
@@ -42,13 +44,11 @@ function verifyTotpCode(secret: string, code: string): boolean {
   }) as boolean;
 }
 
-function generateBackupCodes(): { plain: string[]; hashed: string[] } {
+async function generateBackupCodes(): Promise<{ plain: string[]; hashed: string[] }> {
   const plain = Array.from({ length: 10 }, () =>
-    crypto.randomBytes(4).toString("hex").toUpperCase()
+    crypto.randomBytes(6).toString("hex")
   );
-  const hashed = plain.map((c) =>
-    crypto.createHash("sha256").update(c).digest("hex")
-  );
+  const hashed = await Promise.all(plain.map((c) => bcrypt.hash(c, 12)));
   return { plain, hashed };
 }
 
@@ -78,8 +78,7 @@ function decryptSecret(encoded: string): string {
   return decipher.update(encrypted).toString("utf8") + decipher.final("utf8");
 }
 
-// In-memory pending TOTP setup (real impl: Redis)
-const pendingSetup = new Map<string, string>();
+// Pending TOTP setup stored in Redis with 5-minute TTL
 
 export const mfaRouter = createTRPCRouter({
   getStatus: protectedProcedure.query(async ({ ctx }) => {
@@ -113,8 +112,7 @@ export const mfaRouter = createTRPCRouter({
       org?.name ?? "ZenFlow"
     );
 
-    pendingSetup.set(userId, secret);
-    setTimeout(() => pendingSetup.delete(userId), 5 * 60 * 1000);
+    await redis.set(`pending_mfa_setup:${userId}`, secret, 'EX', 300); // 5 min TTL
 
     let qrCode = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%23f0f0f0"/><text x="50" y="50" text-anchor="middle" font-size="8" fill="%23333">QR Code</text><text x="50" y="62" text-anchor="middle" font-size="6" fill="%23666">Scan in your app</text></svg>`;
     try {
@@ -131,7 +129,7 @@ export const mfaRouter = createTRPCRouter({
     .input(z.object({ code: z.string().length(6) }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id as string;
-      const secret = pendingSetup.get(userId);
+      const secret = await redis.get(`pending_mfa_setup:${userId}`);
       if (!secret) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -142,7 +140,7 @@ export const mfaRouter = createTRPCRouter({
       const valid = verifyTotpCode(secret, input.code);
       if (!valid) throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid code" });
 
-      const { plain, hashed } = generateBackupCodes();
+      const { plain, hashed } = await generateBackupCodes();
       const encryptedSecret = encryptSecret(secret);
 
       // Store encrypted secret in user.two_factor_secret, backup codes in metadata
@@ -165,7 +163,7 @@ export const mfaRouter = createTRPCRouter({
         },
       });
 
-      pendingSetup.delete(userId);
+      await redis.del(`pending_mfa_setup:${userId}`);
       return { backup_codes: plain };
     }),
 

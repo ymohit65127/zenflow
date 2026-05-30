@@ -1,0 +1,50 @@
+security: harden to 10/10 — fix all remaining OWASP gaps
+
+CRITICAL (A10 SSRF — bypass fix):
+- forms/webhooks.ts: retry + testFire mutations now use dispatchWebhook()
+  instead of raw fetch() — SSRF guard was previously bypassed in these paths
+- ssrf-guard.ts: close 4 bypass vectors — IPv6-mapped IPv4 (::ffff:127.0.0.1),
+  decimal-encoded IP (2130706433), octal-encoded IP (0177.0.0.1), and HTTP
+  redirect chains; new safeFetch() export enforces redirect:'manual'
+- form-webhook.ts + executor.ts: migrate from assertSafeUrl+fetch to safeFetch
+
+HIGH (A05 Security Misconfiguration — CSP hardening):
+- middleware.ts: move CSP here from next.config.ts with per-request nonce;
+  remove unsafe-inline + unsafe-eval, use nonce+strict-dynamic instead;
+  add frame-ancestors 'self'; remove bare ws:/wss: wildcard from connect-src
+- next.config.ts: remove CSP (now in middleware); keep all other headers
+- layout.tsx: read x-nonce header, pass nonce to html element
+
+HIGH (A07 Auth Failures):
+- auth.ts: session maxAge 30 days -> 8 hours; explicit cookie config with
+  HttpOnly, SameSite=lax, Secure in prod, __Secure- prefix in prod
+
+HIGH (A07 CSRF):
+- server/trpc.ts: CSRF origin check — reject tRPC requests where Origin
+  header host != request Host header
+- app/api/trpc/[trpc]/route.ts: CORS headers + OPTIONS preflight handler;
+  Access-Control-Allow-Origin restricted to NEXTAUTH_URL
+
+HIGH (A06 Vulnerable Components):
+- package.json: replace xlsx 0.18.x (CVE-2023-30533 prototype pollution)
+  with exceljs 4.4.0; migrate all xlsx API usages to exceljs API
+
+MEDIUM (A02 Cryptographic Failures):
+- platform/mfa.ts: backup codes upgraded from SHA-256 to bcrypt rounds=12;
+  code length increased from 8 to 12 hex chars (6 bytes entropy)
+
+MEDIUM (A07 Auth Failures):
+- platform/mfa.ts: pendingSetup Map (in-memory, breaks multi-instance)
+  replaced with Redis key pending_mfa_setup:{userId} with 5-min TTL
+- middleware.ts: callbackUrl validated as relative path before setting
+- login/page.tsx: callbackUrl consumed with relative-path validation
+
+LOW (A09 Logging):
+- server/trpc.ts: INTERNAL_SERVER_ERROR messages sanitized to generic
+  string in production — prevents internal detail leakage
+
+LOW (A05 Security):
+- public/robots.txt: disallow /api/, /settings/, /dashboard/, /f/
+- public/.well-known/security.txt: responsible disclosure contact info
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>

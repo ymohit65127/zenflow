@@ -8,12 +8,50 @@ export default auth((req) => {
   const { pathname } = req.nextUrl;
   const isAuthenticated = !!req.auth;
 
+  // --- Nonce + CSP ---
+  const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
+
+  const cspHeader = [
+    `default-src 'self'`,
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    `style-src 'self' 'unsafe-inline'`,
+    `img-src 'self' data: blob: https:`,
+    `font-src 'self'`,
+    `connect-src 'self'`,
+    `media-src 'self'`,
+    `object-src 'none'`,
+    `base-uri 'self'`,
+    `form-action 'self'`,
+    `frame-ancestors 'self'`,
+    `upgrade-insecure-requests`,
+  ].join('; ');
+
+  // Build forwarded request headers that carry the nonce
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set('x-nonce', nonce);
+  requestHeaders.set('content-security-policy', cspHeader);
+
   // Allow public API routes
-  if (pathname.startsWith("/api/auth")) return NextResponse.next();
+  if (pathname.startsWith("/api/auth")) {
+    const res = NextResponse.next({ request: { headers: requestHeaders } });
+    res.headers.set('content-security-policy', cspHeader);
+    res.headers.set('x-nonce', nonce);
+    return res;
+  }
   // Allow public form embed routes (moved to /f/ to avoid route conflicts)
-  if (pathname.startsWith("/f/")) return NextResponse.next();
+  if (pathname.startsWith("/f/")) {
+    const res = NextResponse.next({ request: { headers: requestHeaders } });
+    res.headers.set('content-security-policy', cspHeader);
+    res.headers.set('x-nonce', nonce);
+    return res;
+  }
   // Allow public pages
-  if (pathname.startsWith("/demo") || pathname.startsWith("/contact")) return NextResponse.next();
+  if (pathname.startsWith("/demo") || pathname.startsWith("/contact")) {
+    const res = NextResponse.next({ request: { headers: requestHeaders } });
+    res.headers.set('content-security-policy', cspHeader);
+    res.headers.set('x-nonce', nonce);
+    return res;
+  }
 
   // Redirect authenticated users away from auth pages
   if (isAuthenticated && authRoutes.some((r) => pathname.startsWith(r))) {
@@ -28,11 +66,18 @@ export default auth((req) => {
   // Protect dashboard routes
   if (!isAuthenticated && !publicRoutes.some((r) => pathname === r || pathname.startsWith(r + "/"))) {
     const loginUrl = new URL("/login", req.url);
-    loginUrl.searchParams.set("callbackUrl", pathname);
+    // Only set callbackUrl if it's a safe relative path
+    const isRelativePath = pathname.startsWith('/') && !pathname.startsWith('//') && !pathname.includes(':');
+    if (isRelativePath) {
+      loginUrl.searchParams.set("callbackUrl", pathname);
+    }
     return NextResponse.redirect(loginUrl);
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  response.headers.set('content-security-policy', cspHeader);
+  response.headers.set('x-nonce', nonce);
+  return response;
 });
 
 export const config = {

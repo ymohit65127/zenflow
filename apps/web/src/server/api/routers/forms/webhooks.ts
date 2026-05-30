@@ -1,7 +1,7 @@
 import { createTRPCRouter, protectedProcedure } from '@/server/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import crypto from 'crypto';
+import { dispatchWebhook, buildWebhookPayload } from '@/lib/form-webhook';
 
 export const webhooksRouter = createTRPCRouter({
   /** List webhook queue entries for a form */
@@ -58,34 +58,26 @@ export const webhooksRouter = createTRPCRouter({
         data: { status: 'pending', next_at: new Date(), last_error: null },
       });
 
-      // Fire immediately
-      const payload = entry.payload as string;
-      const secret = entry.form.webhook_secret as string | null;
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'X-ZenFlow-Delivery': input.queueId,
-      };
-      if (secret) {
-        const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
-        headers['X-ZenFlow-Signature'] = `sha256=${sig}`;
-      }
+      // Fire immediately via dispatchWebhook (includes SSRF guard + redirect blocking)
+      const payload = entry.payload as Record<string, unknown>;
+      const secret = (entry.form.webhook_secret as string | null) ?? '';
 
-      try {
-        const res = await fetch(entry.webhook_url as string, {
-          method: 'POST',
-          headers,
-          body: payload,
-          signal: AbortSignal.timeout(10_000),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const result = await dispatchWebhook(
+        entry.webhook_url as string,
+        secret,
+        payload,
+        input.queueId
+      );
+
+      if (result.success) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (ctx.prisma as any).formWebhookQueue.update({
           where: { id: input.queueId },
           data: { status: 'delivered', attempts: { increment: 1 } },
         });
         return { success: true };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Unknown error';
+      } else {
+        const msg = result.error ?? 'Unknown error';
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (ctx.prisma as any).formWebhookQueue.update({
           where: { id: input.queueId },
@@ -110,40 +102,29 @@ export const webhooksRouter = createTRPCRouter({
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'No webhook URL configured on this form' });
       }
 
-      const samplePayload = {
-        event: 'test',
-        form_id: form.id,
-        form_title: form.title,
-        timestamp: new Date().toISOString(),
-        data: { sample_field: 'sample_value' },
-      };
-      const payloadStr = JSON.stringify(samplePayload);
+      const samplePayload = buildWebhookPayload(
+        'test',
+        form.id,
+        form.title,
+        undefined,
+        { sample_field: 'sample_value' }
+      );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const secret = (form as any).webhook_secret as string | null;
 
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'X-ZenFlow-Delivery': `test-${Date.now()}`,
-      };
-      if (secret) {
-        const sig = crypto.createHmac('sha256', secret).update(payloadStr).digest('hex');
-        headers['X-ZenFlow-Signature'] = `sha256=${sig}`;
+      // dispatchWebhook includes SSRF guard + redirect blocking
+      const result = await dispatchWebhook(
+        webhookUrl,
+        secret ?? '',
+        samplePayload,
+        `test-${Date.now()}`
+      );
+
+      if (!result.success && result.error?.startsWith('SSRF_BLOCKED')) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: result.error });
       }
 
-      try {
-        const res = await fetch(webhookUrl, {
-          method: 'POST',
-          headers,
-          body: payloadStr,
-          signal: AbortSignal.timeout(10_000),
-        });
-        return { success: res.ok, status: res.status };
-      } catch (err) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: `Test webhook failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
-        });
-      }
+      return { success: result.success, status: result.status };
     }),
 
   /** Update the form's webhook URL and secret */

@@ -1,0 +1,8 @@
+User-agent: *
+Disallow: /api/
+Disallow: /settings/
+Disallow: /dashboard/
+Disallow: /f/
+Allow: /
+
+Sitemap: https://zenflow.io/sitemap.xml

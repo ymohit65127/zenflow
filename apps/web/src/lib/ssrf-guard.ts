@@ -1,6 +1,8 @@
+// IMPORTANT: Always use { redirect: 'manual' } when calling fetch() after assertSafeUrl
 /**
  * SSRF Guard — shared utility for blocking requests to private/internal addresses.
  * Import assertSafeUrl and call it before any outbound fetch that uses user-supplied URLs.
+ * Prefer safeFetch() which enforces redirect: 'manual' automatically.
  */
 
 import dns from 'dns/promises';
@@ -58,6 +60,39 @@ export async function assertSafeUrl(url: string): Promise<void> {
     throw new Error(`SSRF_BLOCKED: Private IP range '${host}' is not allowed.`);
   }
 
+  // IPv6-mapped IPv4 — e.g. [::ffff:127.0.0.1] or ::ffff:192.168.1.1
+  const ipv6MappedMatch = host.match(/^\[?::ffff:(\d+\.\d+\.\d+\.\d+)\]?$/i);
+  if (ipv6MappedMatch) {
+    const embeddedIp = ipv6MappedMatch[1] as string;
+    if (PRIVATE_RANGES.some((r) => r.test(embeddedIp)) || BLOCKED_HOSTS.has(embeddedIp)) {
+      throw new Error(`SSRF_BLOCKED: IPv6-mapped private address '${host}' is not allowed.`);
+    }
+  }
+
+  // Decimal-encoded IP — e.g. http://2130706433/ → 127.0.0.1
+  if (/^\d+$/.test(host)) {
+    const n = parseInt(host, 10);
+    if (!isNaN(n) && n >= 0 && n <= 0xFFFFFFFF) {
+      const ip = [(n >>> 24) & 0xFF, (n >>> 16) & 0xFF, (n >>> 8) & 0xFF, n & 0xFF].join('.');
+      if (PRIVATE_RANGES.some((r) => r.test(ip)) || BLOCKED_HOSTS.has(ip)) {
+        throw new Error(`SSRF_BLOCKED: Decimal-encoded private address '${host}' (${ip}) is not allowed.`);
+      }
+    }
+  }
+
+  // Octal-encoded IP — e.g. http://0177.0.0.1/ → 127.0.0.1
+  const octets = host.split('.');
+  if (
+    octets.length === 4 &&
+    octets.every((o) => /^[0-7]+$/.test(o)) &&
+    octets.some((o) => o.startsWith('0') && o.length > 1)
+  ) {
+    const ip = octets.map((o) => parseInt(o, 8)).join('.');
+    if (PRIVATE_RANGES.some((r) => r.test(ip)) || BLOCKED_HOSTS.has(ip)) {
+      throw new Error(`SSRF_BLOCKED: Octal-encoded private address '${host}' (${ip}) is not allowed.`);
+    }
+  }
+
   // DNS resolution check — ensures hostnames that resolve to private IPs are also blocked
   try {
     const addrs = await dns.lookup(host, { all: true });
@@ -74,4 +109,19 @@ export async function assertSafeUrl(url: string): Promise<void> {
     if (msg.startsWith('SSRF_BLOCKED')) throw err;
     throw new Error(`DNS resolution failed for '${host}': ${msg}`);
   }
+}
+
+/**
+ * Safe fetch wrapper — validates the URL with assertSafeUrl and blocks HTTP redirects
+ * to prevent redirect-based SSRF bypasses.
+ *
+ * Use this instead of calling assertSafeUrl + fetch separately.
+ */
+export async function safeFetch(url: string, opts: RequestInit = {}): Promise<Response> {
+  await assertSafeUrl(url);
+  const res = await fetch(url, { ...opts, redirect: 'manual' });
+  if (res.status >= 300 && res.status < 400) {
+    throw new Error(`SSRF_BLOCKED: redirect to ${res.headers.get('location') ?? 'unknown'}`);
+  }
+  return res;
 }
