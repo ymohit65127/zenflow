@@ -8,14 +8,14 @@ const ALGORITHM = 'aes-256-gcm';
 function deriveKey(orgId: string): Buffer {
   const secret = process.env.ENCRYPTION_SECRET;
   if (!secret) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('FATAL: ENCRYPTION_SECRET env var is required in production.');
-    }
-    // Dev fallback — NEVER use in production
-    console.warn('[SECURITY WARNING] ENCRYPTION_SECRET not set. Using insecure dev fallback. Set this env var!');
+    // Require ENCRYPTION_SECRET in all environments — no hardcoded fallback.
+    // In development, set ENCRYPTION_SECRET=any-random-string-at-least-32-chars in .env.local
+    throw new Error(
+      'FATAL: ENCRYPTION_SECRET env var is required. ' +
+      'Add ENCRYPTION_SECRET=<random-32+-char-string> to your .env.local file.'
+    );
   }
-  const secretKey = secret ?? 'zenflow-dev-insecure-fallback-do-not-use-in-prod';
-  return crypto.scryptSync(orgId + secretKey, 'zenflow-salt', 32);
+  return crypto.scryptSync(orgId + secret, 'zenflow-salt', 32);
 }
 
 export type EncryptedCredentials = {

@@ -6,7 +6,7 @@ import { Prisma } from '@prisma/client';
 const OptionSourceSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().optional(),
-  query_mode: z.enum(['structured', 'raw']).default('structured'),
+  query_mode: z.enum(['structured']).default('structured'),
   source_table: z.string().max(100).optional(),
   source_column: z.string().max(100).optional(),
   value_column: z.string().max(100).optional(),
